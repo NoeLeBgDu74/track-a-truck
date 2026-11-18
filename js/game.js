@@ -509,7 +509,7 @@ export class Game {
     this.setState('end');
     const pl = this.player;
     $('end-title').textContent = title; $('end-sub').textContent = sub;
-    $('end').className = 'screen on ' + (win ? 'win' : 'lose');
+    $('end').className = 'screen center on ' + (win ? 'win' : 'lose');
     $('end-badge').textContent = win ? 'VICTOIRE' : 'DÉFAITE';
     const el = this.lastCfg ? (DIFF[settings.difficulty].time - this.timeLeft) : 0;
     $('end-stats').innerHTML = [
