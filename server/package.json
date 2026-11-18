@@ -4,6 +4,10 @@
   "private": true,
   "description": "Serveur relais WebSocket pour le multijoueur de TRACK A TRUCK",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
-  "dependencies": { "ws": "^8.18.0" }
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.23.0"
+  }
 }
