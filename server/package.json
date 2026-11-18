@@ -1,0 +1,9 @@
+{
+  "name": "track-a-truck-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Serveur relais WebSocket pour le multijoueur de TRACK A TRUCK",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "ws": "^8.18.0" }
+}

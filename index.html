@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TRACK A TRUCK</title>
+<meta name="description" content="TRACK A TRUCK — poursuite 3D sur autoroute : camions contre police, trafic IA, météo, jour et nuit.">
+<meta name="theme-color" content="#0d1117">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23ff7a1a'/%3E%3Cpath d='M10 40V22h26v6h8l8 8v4z' fill='%23111'/%3E%3Ccircle cx='20' cy='42' r='5' fill='%23fff'/%3E%3Ccircle cx='44' cy='42' r='5' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+  "@dimforge/rapier3d-compat": "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.14.0/rapier.es.js"
+} }
+</script>
+<style>
+:root { --acc:#ff7a1a; --acc2:#ffb35c; --pol:#2f7dff; --ink:#f3f5f8; --mute:#9aa6b4; --panel:rgba(12,16,22,.78); --line:rgba(255,255,255,.1); --bg:#0d1117; }
+body[data-team="police"] { --acc:#2f7dff; --acc2:#7fb0ff; }
+* { box-sizing:border-box; }
+html,body { margin:0; height:100%; overflow:hidden; background:var(--bg); color:var(--ink); font-family:Inter, system-ui, sans-serif; user-select:none; }
+canvas#c { position:fixed; inset:0; width:100vw; height:100vh; display:block; }
+.r { font-family:Rajdhani, sans-serif; }
+button { font-family:inherit; cursor:pointer; }
+kbd { font:600 11px Inter; background:rgba(255,255,255,.1); border:1px solid var(--line); border-bottom-width:2px; border-radius:4px; padding:1px 6px; color:var(--ink); }
+
+/* chargement */
+#loading { position:fixed; inset:0; z-index:50; display:grid; place-items:center; background:radial-gradient(ellipse at 50% 30%, #1b2330, #07090c 70%); transition:opacity .6s; }
+#loading.gone { opacity:0; pointer-events:none; }
+.logo { font-family:Rajdhani; font-weight:700; letter-spacing:.06em; line-height:.85; text-align:center; }
+.logo .l1 { font-size:clamp(54px,10vw,128px); background:linear-gradient(180deg,#fff 0%,#ffd0a0 45%,#ff7a1a 100%); -webkit-background-clip:text; background-clip:text; color:transparent; filter:drop-shadow(0 8px 30px rgba(255,122,26,.25)); }
+.logo .l2 { display:block; font-size:clamp(16px,2.2vw,24px); letter-spacing:.55em; color:var(--mute); margin-top:12px; font-weight:600; }
+.logo .a { color:#2f7dff; -webkit-text-fill-color:#2f7dff; }
+#load-track { width:min(360px,70vw); height:4px; background:rgba(255,255,255,.1); border-radius:4px; margin:34px auto 10px; overflow:hidden; }
+#load-bar { height:100%; width:0; background:linear-gradient(90deg,var(--acc),#ffd060); transition:width .4s; }
+#load-msg { text-align:center; color:var(--mute); font-size:13px; }
+
+/* écrans */
+.screen { position:fixed; inset:0; z-index:20; display:none; }
+.screen.on { display:flex; }
+.shade { background:linear-gradient(90deg, rgba(7,9,12,.92) 0%, rgba(7,9,12,.75) 38%, rgba(7,9,12,.1) 70%); }
+.center { align-items:center; justify-content:center; background:rgba(5,7,10,.72); backdrop-filter:blur(6px); }
+#home { flex-direction:column; justify-content:center; padding:0 7vw; }
+#home .logo { text-align:left; }
+#home .logo .l2 { letter-spacing:.42em; }
+.menu { display:flex; flex-direction:column; gap:10px; margin-top:40px; width:min(360px,86vw); }
+.mbtn { display:flex; align-items:center; gap:14px; text-align:left; padding:15px 20px; border-radius:12px; border:1px solid var(--line); background:rgba(255,255,255,.04); color:var(--ink); font:700 20px Rajdhani; letter-spacing:.12em; text-transform:uppercase; transition:.18s; }
+.mbtn small { display:block; font:500 12px Inter; letter-spacing:0; text-transform:none; color:var(--mute); }
+.mbtn:hover { background:rgba(255,122,26,.16); border-color:rgba(255,122,26,.6); transform:translateX(6px); }
+.mbtn.primary { background:linear-gradient(90deg,#ff7a1a,#ff9d3f); color:#1a0e04; border:0; box-shadow:0 10px 40px rgba(255,122,26,.3); }
+.mbtn.primary small { color:#4a2508; }
+.mbtn .ic { font-size:22px; width:28px; text-align:center; }
+.foot { position:absolute; bottom:22px; left:7vw; color:var(--mute); font-size:12px; }
+
+.panel { background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:28px 30px; width:min(820px,94vw); max-height:92vh; overflow:auto; box-shadow:0 30px 80px rgba(0,0,0,.5); }
+.panel h2 { font:700 34px Rajdhani; letter-spacing:.1em; margin:0 0 4px; text-transform:uppercase; }
+.panel h3 { font:700 14px Rajdhani; letter-spacing:.2em; color:var(--mute); text-transform:uppercase; margin:22px 0 10px; }
+.panel p.sub { color:var(--mute); margin:0 0 10px; font-size:14px; }
+.teams { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.team { border:2px solid var(--line); border-radius:16px; padding:20px; background:rgba(255,255,255,.03); text-align:left; color:var(--ink); transition:.15s; }
+.team .em { font-size:46px; }
+.team b { display:block; font:700 26px Rajdhani; letter-spacing:.1em; margin:6px 0; }
+.team span { color:var(--mute); font-size:13px; line-height:1.45; }
+.team.truck.sel { border-color:#ff7a1a; background:rgba(255,122,26,.12); }
+.team.police.sel { border-color:#2f7dff; background:rgba(47,125,255,.12); }
+.chips { display:flex; flex-wrap:wrap; gap:8px; }
+.chip { padding:9px 14px; border-radius:999px; border:1px solid var(--line); background:rgba(255,255,255,.04); color:var(--ink); font:600 13px Inter; transition:.15s; }
+.chip:hover { border-color:rgba(255,255,255,.35); }
+.chip.sel { background:var(--acc); border-color:var(--acc); color:#0b0b0b; }
+.brief { margin-top:18px; padding:14px 16px; border-left:3px solid var(--acc); background:rgba(255,255,255,.04); border-radius:8px; font-size:14px; line-height:1.55; color:#d6dce4; }
+.row { display:flex; gap:12px; justify-content:flex-end; margin-top:24px; flex-wrap:wrap; }
+.btn { padding:13px 26px; border-radius:10px; border:1px solid var(--line); background:rgba(255,255,255,.06); color:var(--ink); font:700 17px Rajdhani; letter-spacing:.14em; text-transform:uppercase; }
+.btn:hover { background:rgba(255,255,255,.12); }
+.btn.go { background:var(--acc); color:#0c0c0c; border:0; box-shadow:0 8px 30px rgba(0,0,0,.3); }
+.vgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:10px; }
+.vcard { text-align:left; padding:14px 16px; border-radius:12px; border:1px solid var(--line); background:rgba(255,255,255,.03); color:var(--ink); }
+.vcard small { color:var(--mute); font-size:10px; letter-spacing:.2em; }
+.vcard b { display:block; font:700 19px Rajdhani; letter-spacing:.05em; margin:2px 0 4px; }
+.vcard span { display:block; color:var(--mute); font-size:12px; line-height:1.4; }
+.vcard.sel { border-color:var(--acc); background:rgba(255,255,255,.08); box-shadow:inset 0 0 0 1px var(--acc); }
+
+/* garage */
+#garage { align-items:stretch; }
+#garage .side { width:min(400px,92vw); padding:28px; display:flex; flex-direction:column; gap:12px; overflow:auto; }
+#garage h2 { font:700 40px Rajdhani; letter-spacing:.14em; margin:0; }
+.tabs { display:flex; gap:8px; }
+.tab { flex:1; padding:11px; border-radius:10px; border:1px solid var(--line); background:rgba(255,255,255,.04); color:var(--ink); font:700 16px Rajdhani; letter-spacing:.12em; }
+.tab.sel { background:var(--acc); color:#111; border-color:var(--acc); }
+#g-list { display:flex; flex-direction:column; gap:8px; }
+.stat { display:grid; grid-template-columns:110px 1fr; align-items:center; gap:10px; font-size:13px; color:var(--mute); margin:6px 0; }
+.stat i { height:7px; background:rgba(255,255,255,.08); border-radius:4px; overflow:hidden; }
+.stat b { display:block; height:100%; background:linear-gradient(90deg,var(--acc),var(--acc2)); border-radius:4px; }
+.specs { font:600 15px Rajdhani; letter-spacing:.08em; color:var(--ink); margin:10px 0 0; }
+#g-paint { display:flex; flex-wrap:wrap; gap:8px; }
+.sw { width:34px; height:34px; border-radius:50%; border:2px solid rgba(255,255,255,.2); }
+.sw.sel { border-color:#fff; box-shadow:0 0 0 3px var(--acc); }
+.hint { color:var(--mute); font-size:12px; }
+
+/* paramètres */
+.opt { display:grid; grid-template-columns:200px 1fr; gap:10px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); }
+.opt label { color:#cfd6df; font-size:14px; }
+input[type=range] { width:100%; accent-color:var(--acc); }
+input[type=checkbox] { width:20px; height:20px; accent-color:var(--acc); }
+input[type=text] { background:rgba(255,255,255,.06); border:1px solid var(--line); color:var(--ink); padding:10px 12px; border-radius:8px; font:500 14px Inter; width:100%; }
+
+/* aide */
+.keys { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:8px 20px; font-size:14px; color:#cfd6df; }
+.keys div { display:flex; gap:10px; align-items:center; }
+
+/* HUD */
+#hud { position:fixed; inset:0; z-index:10; pointer-events:none; display:none; }
+#hud.on { display:block; }
+body[data-state="end"] #hud .hide-end { display:none; }
+.glass { background:var(--panel); border:1px solid var(--line); border-radius:14px; backdrop-filter:blur(6px); }
+#speedwrap { position:absolute; left:20px; bottom:16px; width:250px; padding:10px; transition:opacity .3s; }
+#speedo { display:block; margin:0 auto; }
+#h-gear { position:absolute; left:50%; top:96px; transform:translateX(-50%); font:700 30px Rajdhani; color:var(--acc); }
+#h-rpm { text-align:center; font:600 12px Rajdhani; color:var(--mute); letter-spacing:.1em; margin-top:-6px; }
+.dmg { margin:8px 6px 2px; font-size:11px; color:var(--mute); display:flex; justify-content:space-between; }
+.dmgbar { height:6px; margin:0 6px; background:rgba(255,255,255,.08); border-radius:4px; overflow:hidden; }
+#h-dmg-bar { height:100%; width:100%; background:#3fd07a; transition:width .3s; }
+.icons { display:flex; justify-content:center; gap:8px; margin-top:8px; }
+.icons i { font-style:normal; font-size:15px; opacity:.22; filter:grayscale(1); transition:.2s; }
+.icons i.on { opacity:1; filter:none; }
+#topbar { position:absolute; top:14px; left:50%; transform:translateX(-50%); display:flex; gap:10px; align-items:stretch; }
+#h-role { padding:10px 16px; font:700 14px Rajdhani; letter-spacing:.2em; color:var(--acc); display:flex; align-items:center; }
+#h-timer { padding:6px 22px; font:700 38px Rajdhani; letter-spacing:.05em; min-width:130px; text-align:center; }
+#h-timer.warn { color:#ff3b2f; animation:pulse 1s infinite; }
+@keyframes pulse { 50% { opacity:.4; } }
+#objective { position:absolute; top:14px; left:16px; padding:12px 16px; min-width:250px; max-width:330px; }
+#h-obj b { display:block; font:700 20px Rajdhani; letter-spacing:.04em; }
+#h-obj span { display:block; font-size:12px; color:var(--mute); margin-top:3px; }
+#h-obj span.red { color:#ff6a5a; font-weight:600; }
+#route { margin-top:10px; height:6px; border-radius:4px; background:linear-gradient(90deg, rgba(255,255,255,.15), rgba(64,255,144,.5)); position:relative; }
+#route::after { content:'⚑'; position:absolute; right:-4px; top:-12px; color:#40ff90; font-size:14px; }
+#route-marks i { position:absolute; top:-3px; width:12px; height:12px; margin-left:-6px; border-radius:50%; border:2px solid #000; }
+#route-marks i.me { background:#fff; z-index:2; }
+#route-marks i.pol { background:#2f7dff; }
+#route-marks i.tr { background:#ff9a1a; }
+#mapwrap { position:absolute; right:16px; bottom:16px; width:236px; }
+#minimap { display:block; }
+#gps { margin-top:8px; padding:9px 14px; display:flex; justify-content:space-between; align-items:center; gap:10px; }
+#gps-i { font:600 14px Inter; }
+#gps-d { font:700 20px Rajdhani; color:var(--acc); white-space:nowrap; }
+#feed { position:absolute; left:16px; top:200px; width:min(420px,40vw); display:flex; flex-direction:column; gap:6px; }
+.msg { background:rgba(10,14,20,.78); border-left:3px solid var(--acc); padding:8px 12px; border-radius:6px; font-size:13px; line-height:1.4; transition:opacity 1.5s; animation:slidein .3s; }
+.msg.pol { border-left-color:#2f7dff; }
+.msg.red { border-left-color:#ff3b2f; }
+.msg.old { opacity:.35; }
+@keyframes slidein { from { transform:translateX(-20px); opacity:0; } }
+#bust { position:absolute; top:84px; left:50%; transform:translateX(-50%); width:min(460px,80vw); padding:10px 16px; text-align:center; opacity:0; transition:opacity .3s; border-color:rgba(255,59,47,.5); }
+#bust.on { opacity:1; }
+#bust-t { font:700 14px Rajdhani; letter-spacing:.18em; color:#ff6a5a; }
+#bust-track { height:8px; margin-top:6px; border-radius:4px; background:rgba(255,255,255,.1); overflow:hidden; }
+#bust-bar { height:100%; width:0; background:linear-gradient(90deg,#ff3b2f,#2f7dff); }
+#toast { position:absolute; bottom:270px; left:50%; transform:translateX(-50%); padding:8px 18px; border-radius:999px; background:rgba(10,14,20,.8); font:600 14px Inter; opacity:0; transition:opacity .25s; }
+#toast.on { opacity:1; }
+#bigtext { position:absolute; top:38%; left:50%; transform:translate(-50%,-50%) scale(.6); font:700 140px Rajdhani; color:#fff; opacity:0; text-shadow:0 10px 50px rgba(0,0,0,.6); transition:transform .25s, opacity .25s; }
+#bigtext.on { opacity:1; transform:translate(-50%,-50%) scale(1); }
+#bigtext.go { color:#40ff90; }
+#keyhint { position:absolute; bottom:16px; left:50%; transform:translateX(-50%); font-size:11px; color:rgba(255,255,255,.55); display:flex; gap:12px; white-space:nowrap; }
+#fps { position:fixed; right:8px; top:6px; z-index:30; font:600 11px Rajdhani; color:rgba(255,255,255,.4); pointer-events:none; }
+#chatkeys { display:none; position:absolute; right:16px; top:14px; flex-direction:column; gap:3px; font-size:11px; color:var(--mute); }
+body.online #chatkeys { display:flex; }
+
+/* pause & fin */
+#pause { position:fixed; inset:0; z-index:25; display:none; align-items:center; justify-content:center; background:rgba(5,7,10,.65); backdrop-filter:blur(5px); }
+#pause.on { display:flex; }
+#pause .panel { width:min(380px,90vw); text-align:center; }
+#pause .menu { margin:20px auto 0; }
+#end .panel { text-align:center; width:min(560px,92vw); }
+#end-badge { display:inline-block; padding:6px 16px; border-radius:999px; font:700 14px Rajdhani; letter-spacing:.3em; }
+#end.win #end-badge { background:#40ff90; color:#06240f; }
+#end.lose #end-badge { background:#ff3b2f; color:#fff; }
+#end-title { font:700 52px Rajdhani; letter-spacing:.06em; margin:14px 0 4px; }
+#end-sub { color:var(--mute); margin:0 0 20px; }
+#end-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+#end-stats div { background:rgba(255,255,255,.05); border-radius:10px; padding:12px; }
+#end-stats span { display:block; font-size:11px; color:var(--mute); letter-spacing:.08em; text-transform:uppercase; }
+#end-stats b { font:700 22px Rajdhani; }
+#end .row { justify-content:center; }
+#vrbtn { z-index:30 !important; }
+body:not([data-state="menu"]) #vrbtn { display:none; }
+#m-players li.truck { color:#ffb35c; } #m-players li.police { color:#7fb0ff; }
+#m-players, #m-rooms { padding-left:18px; line-height:1.9; }
+.note { font-size:12px; color:var(--mute); line-height:1.5; margin-top:10px; }
+
+@media (max-width:760px) {
+  .teams { grid-template-columns:1fr; }
+  #speedwrap { transform:scale(.7); transform-origin:left bottom; }
+  #mapwrap { transform:scale(.7); transform-origin:right bottom; }
+  #objective { transform:scale(.85); transform-origin:left top; }
+  #keyhint { display:none; }
+  .opt { grid-template-columns:1fr; }
+}
+</style>
+</head>
+<body data-state="menu" data-team="truck">
+<canvas id="c"></canvas>
+<div id="fps"></div>
+
+<div id="loading">
+  <div>
+    <div class="logo"><span class="l1">TRACK <span class="a">A</span> TRUCK</span><span class="l2">POURSUITE SUR AUTOROUTE</span></div>
+    <div id="load-track"><div id="load-bar"></div></div>
+    <div id="load-msg">Initialisation…</div>
+  </div>
+</div>
+
+<!-- Accueil -->
+<section id="home" class="screen shade">
+  <div class="logo"><span class="l1">TRACK <span class="a">A</span> TRUCK</span><span class="l2">POURSUITE SUR AUTOROUTE</span></div>
+  <div class="menu">
+    <button class="mbtn primary" id="b-play"><span class="ic">▶</span><span>Jouer<small>Poursuite : camion contre police</small></span></button>
+    <button class="mbtn" id="b-free"><span class="ic">🛣</span><span>Mode libre<small>Rouler sans objectif</small></span></button>
+    <button class="mbtn" id="b-garage"><span class="ic">🔧</span><span>Garage<small>Véhicules et peintures</small></span></button>
+    <button class="mbtn" id="b-multi"><span class="ic">🌐</span><span>Multijoueur<small>Salons via serveur WebSocket</small></span></button>
+    <button class="mbtn" id="b-settings"><span class="ic">⚙</span><span>Paramètres<small>Graphismes, météo, son</small></span></button>
+    <button class="mbtn" id="b-help"><span class="ic">⌨</span><span>Commandes</span></button>
+  </div>
+  <div class="foot">ZQSD pour conduire · Manette compatible · v1.0</div>
+</section>
+
+<!-- Préparation -->
+<section id="setup" class="screen center">
+  <div class="panel">
+    <h2>Nouvelle poursuite</h2>
+    <p class="sub">Choisissez votre camp.</p>
+    <div class="teams">
+      <button class="team truck" data-team="truck"><div class="em">🚛</div><b>CAMION</b><span>Échappez à la police et livrez la cargaison à la Plateforme Logistique.</span></button>
+      <button class="team police" data-team="police"><div class="em">🚔</div><b>POLICE</b><span>Prenez en chasse le poids lourd et interceptez-le avant sa destination.</span></button>
+    </div>
+    <h3>Véhicule</h3><div class="chips" id="s-veh"></div>
+    <h3>Difficulté</h3><div class="chips" id="s-diff"></div>
+    <h3>Météo</h3><div class="chips" id="s-weather"></div>
+    <h3>Moment</h3><div class="chips" id="s-time"></div>
+    <div class="brief" id="s-brief"></div>
+    <div class="row"><button class="btn" data-back="home">Retour</button><button class="btn go" id="s-go">Lancer la partie</button></div>
+  </div>
+</section>
+
+<section id="setup-free" class="screen center">
+  <div class="panel">
+    <h2>Mode libre</h2>
+    <p class="sub">Toute l'autoroute, le trafic et la météo — sans chrono ni police.</p>
+    <h3>Véhicule</h3><div class="vgrid" id="f-veh"></div>
+    <h3>Météo</h3><div class="chips" id="f-weather"></div>
+    <h3>Moment</h3><div class="chips" id="f-time"></div>
+    <div class="row"><button class="btn" data-back="home">Retour</button><button class="btn go" id="f-go">Rouler</button></div>
+  </div>
+</section>
+
+<!-- Garage -->
+<section id="garage" class="screen shade">
+  <div class="side">
+    <h2>GARAGE</h2>
+    <div class="tabs"><button class="tab" data-team="truck">🚛 Camions</button><button class="tab" data-team="police">🚔 Police</button></div>
+    <div id="g-list"></div>
+    <div id="g-stats"></div>
+    <h3 class="r" style="margin:6px 0 0;letter-spacing:.2em;color:var(--mute);font-size:13px">PEINTURE</h3>
+    <div id="g-paint"></div>
+    <p class="hint">Glissez avec la souris pour tourner autour du véhicule.</p>
+    <div class="row" style="justify-content:flex-start"><button class="btn" data-back="home">Retour</button></div>
+  </div>
+</section>
+
+<!-- Paramètres -->
+<section id="settings" class="screen center">
+  <div class="panel">
+    <h2>Paramètres</h2>
+    <div class="opt"><label>Qualité graphique</label><div class="chips" id="o-quality"></div></div>
+    <div class="opt"><label>Ombres</label><input type="checkbox" id="o-shadows"></div>
+    <div class="opt"><label>Densité du trafic</label><div class="chips" id="o-density"></div></div>
+    <div class="opt"><label>Météo</label><div class="chips" id="o-weather"></div></div>
+    <div class="opt"><label>Moment de la journée</label><div class="chips" id="o-time"></div></div>
+    <div class="opt"><label>Volume</label><input type="range" id="o-vol" min="0" max="1" step="0.05"></div>
+    <div class="opt"><label>Sensibilité souris</label><input type="range" id="o-sens" min="0.3" max="2.5" step="0.1"></div>
+    <div class="opt"><label>Inverser l'axe vertical</label><input type="checkbox" id="o-inv"></div>
+    <div class="row"><button class="btn go" id="o-back">OK</button></div>
+  </div>
+</section>
+
+<!-- Multijoueur -->
+<section id="multi" class="screen center">
+  <div class="panel">
+    <h2>Multijoueur</h2>
+    <p class="sub">Parties en ligne entre vrais joueurs via un serveur relais WebSocket. Aucun joueur n'est simulé.</p>
+    <div class="opt"><label>Adresse du serveur</label><input type="text" id="m-url"></div>
+    <div class="opt"><label>Pseudo</label><input type="text" id="m-name" maxlength="20"></div>
+    <div class="row" style="justify-content:flex-start"><button class="btn go" id="m-connect">Se connecter</button></div>
+    <p id="m-status" class="note"></p>
+    <div id="m-rooms-wrap" style="display:none">
+      <h3>Parties ouvertes</h3>
+      <ul id="m-rooms"></ul>
+      <div class="row" style="justify-content:flex-start">
+        <button class="btn" id="m-refresh">Actualiser</button><button class="btn go" id="m-create">Créer une partie</button>
+        <input type="text" id="m-joincode" placeholder="Code" maxlength="4" style="width:110px"><button class="btn" id="m-join">Rejoindre</button>
+      </div>
+    </div>
+    <div id="m-lobby" style="display:none">
+      <h3>Salon <span id="m-code" style="color:var(--acc)"></span></h3>
+      <ul id="m-players"></ul>
+      <div class="chips"><button class="chip" data-mteam="truck">🚛 Équipe camion</button><button class="chip" data-mteam="police">🚔 Équipe police</button></div>
+      <div class="row" style="justify-content:flex-start"><button class="btn go" id="m-start">Démarrer</button></div>
+    </div>
+    <p class="note">Le serveur se trouve dans <b>server/</b> : <kbd>npm install ws</kbd> puis <kbd>node server.js</kbd> (port 8787). Synchronisés : positions, rotations, vitesses, remorques, sirènes, chat rapide (touches 1–6), interpellations et livraisons. Le trafic civil reste local à chaque joueur.</p>
+    <div class="row"><button class="btn" data-back="home">Retour</button></div>
+  </div>
+</section>
+
+<!-- Aide -->
+<section id="help" class="screen center">
+  <div class="panel">
+    <h2>Commandes</h2>
+    <div class="keys">
+      <div><kbd>Z</kbd><kbd>Q</kbd><kbd>S</kbd><kbd>D</kbd> Conduire (ou flèches)</div>
+      <div><kbd>S</kbd> à l'arrêt : marche arrière</div>
+      <div><kbd>Espace</kbd> Frein à main</div>
+      <div><kbd>C</kbd> Changer de caméra</div>
+      <div><kbd>X</kbd> Regarder derrière</div>
+      <div><kbd>H</kbd> Klaxon</div>
+      <div><kbd>L</kbd> Phares</div>
+      <div><kbd>E</kbd> Sirène / gyrophares (police)</div>
+      <div><kbd>V</kbd> Essuie-glaces</div>
+      <div><kbd>F</kbd> Descendre / remonter</div>
+      <div><kbd>R</kbd> Remettre sur la route</div>
+      <div><kbd>M</kbd> Zoom de la minicarte</div>
+      <div><kbd>Échap</kbd> Menu pause</div>
+      <div>🖱 Clic + glisser : regarder autour</div>
+      <div>🎮 Manette : RT/LT, stick, A frein à main, Y caméra</div>
+      <div><kbd>1</kbd>…<kbd>6</kbd> Chat rapide (en ligne)</div>
+    </div>
+    <h3>Règles</h3>
+    <p class="sub" style="line-height:1.6">Le camion gagne s'il atteint la <b>Plateforme Logistique</b> (sortie 18) avant la fin du chrono. La police gagne si elle maintient le camion sous 14 km/h à moins de 15 m pendant ~3 s, si le camion est détruit, ou si le chrono expire. La police déploie renforts, barrages et herses.</p>
+    <div class="row"><button class="btn" data-back="home">Retour</button></div>
+  </div>
+</section>
+
+<!-- Fin -->
+<section id="end" class="screen center">
+  <div class="panel">
+    <span id="end-badge"></span>
+    <div id="end-title"></div>
+    <p id="end-sub"></p>
+    <div id="end-stats"></div>
+    <div class="row"><button class="btn" id="e-menu">Menu</button><button class="btn go" id="e-again">Rejouer</button></div>
+  </div>
+</section>
+
+<div id="pause"><div class="panel"><h2>Pause</h2>
+  <div class="menu">
+    <button class="mbtn primary" id="p-resume">Reprendre</button>
+    <button class="mbtn" id="p-restart">Recommencer</button>
+    <button class="mbtn" id="p-settings">Paramètres</button>
+    <button class="mbtn" id="p-quit">Quitter vers l'accueil</button>
+  </div></div></div>
+
+<!-- HUD -->
+<div id="hud">
+  <div id="objective" class="glass hide-end"><div id="h-obj"></div><div id="route"><div id="route-marks"></div></div></div>
+  <div id="topbar"><div id="h-role" class="glass"></div><div id="h-timer" class="glass r"></div></div>
+  <div id="bust" class="glass"><div id="bust-t"></div><div id="bust-track"><div id="bust-bar"></div></div></div>
+  <div id="feed"></div>
+  <div id="speedwrap" class="glass">
+    <canvas id="speedo" width="230" height="230"></canvas>
+    <div id="h-gear">N</div>
+    <div id="h-rpm"></div>
+    <div class="dmg"><span id="h-veh"></span><span>État <b id="h-dmg">100%</b></span></div>
+    <div class="dmgbar"><div id="h-dmg-bar"></div></div>
+    <div class="icons"><i id="i-lights" title="Phares">💡</i><i id="i-siren" title="Sirène">🚨</i><i id="i-hand" title="Frein à main">🅿</i><i id="i-wiper" title="Essuie-glaces">🌧</i><i id="i-spike" title="Pneus crevés">⚠</i></div>
+  </div>
+  <div id="mapwrap">
+    <canvas id="minimap" width="220" height="220" style="margin:0 auto"></canvas>
+    <div id="gps" class="glass"><span id="gps-i"></span><span id="gps-d"></span></div>
+  </div>
+  <div id="toast"></div>
+  <div id="bigtext"></div>
+  <div id="keyhint"><span><kbd>C</kbd> caméra</span><span><kbd>L</kbd> phares</span><span id="siren-hint"><kbd>E</kbd> sirène</span><span><kbd>H</kbd> klaxon</span><span><kbd>F</kbd> sortir</span><span><kbd>R</kbd> replacer</span><span><kbd>Échap</kbd> menu</span></div>
+  <div id="chatkeys"></div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
