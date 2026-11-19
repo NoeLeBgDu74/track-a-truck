@@ -119,7 +119,7 @@ export const TRAFFIC_TYPES = [
 const DEF = {
   quality: 'high', shadows: true, density: 'normal', weather: 'clear', time: 'day', volume: 0.8,
   difficulty: 'normal', team: 'truck', vehicle: { truck: 'semi', police: 'sedan' }, paint: {}, sens: 1, invertY: false,
-  playerName: 'Joueur', server: 'ws://localhost:8787', voices: true, slowmo: true, gearbox: 'auto', touch: 'auto',
+  playerName: 'Joueur', server: 'ws://localhost:8787', voices: true, voiceCmd: true, slowmo: true, gearbox: 'auto', touch: 'auto',
 };
 export const settings = (() => {
   let s = {};

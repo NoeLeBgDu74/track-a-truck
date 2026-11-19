@@ -181,6 +181,7 @@ function ui(game) {
     $('o-sens').value = settings.sens; $('o-sens').oninput = e => { settings.sens = +e.target.value; saveSettings(); };
     $('o-inv').checked = settings.invertY; $('o-inv').onchange = e => { settings.invertY = e.target.checked; saveSettings(); };
     $('o-voices').checked = settings.voices; $('o-voices').onchange = e => { settings.voices = e.target.checked; saveSettings(); };
+    $('o-vcmd').checked = settings.voiceCmd; $('o-vcmd').onchange = e => { settings.voiceCmd = e.target.checked; saveSettings(); };
     $('o-slowmo').checked = settings.slowmo; $('o-slowmo').onchange = e => { settings.slowmo = e.target.checked; saveSettings(); };
     seg('o-gear', 'gearbox', [['auto', 'Automatique'], ['manual', 'Manuelle (Maj/Ctrl)']], renderSettings);
     seg('o-touch', 'touch', [['auto', 'Auto'], ['on', 'Toujours'], ['off', 'Jamais']], () => { document.body.classList.toggle('touch', isTouch()); renderSettings(); });
@@ -219,14 +220,14 @@ function ui(game) {
   const myName = () => { settings.playerName = ($('m-name').value.trim() || 'Joueur').slice(0, 20); saveSettings(); return settings.playerName; };
   $('m-create').onclick = async () => {
     $('m-status').textContent = 'Création de la partie…';
-    try { const code = await net.hostGame(myName()); net.setTeam(settings.team, settings.vehicle[settings.team]); $('m-status').textContent = `Partie créée ! Donne le code ${code} à tes potes.`; }
+    try { const code = await net.hostGame(myName()); net.open = true; net.enableVoice().then(() => { net.applyMic(); renderMulti(); }); net.setTeam(settings.team, settings.vehicle[settings.team]); $('m-status').textContent = `Partie créée ! Donne le code ${code} à tes potes.`; }
     catch (e) { $('m-status').textContent = 'Impossible de créer la partie : ' + e.message; }
     renderMulti();
   };
   const join = async code => {
     if (!code) return;
     $('m-status').textContent = 'Connexion à la partie ' + code.toUpperCase() + '…';
-    try { await net.joinGame(code, myName()); net.setTeam(settings.team, settings.vehicle[settings.team]); $('m-status').textContent = 'Connecté !'; }
+    try { await net.joinGame(code, myName()); net.setTeam(settings.team, settings.vehicle[settings.team]); net.open = true; const mic = await net.enableVoice(); net.applyMic(); $('m-status').textContent = mic ? 'Connecté ! Micro activé 🎙️' : 'Connecté, mais le micro est refusé : autorise-le pour parler (obligatoire).'; }
     catch (e) { $('m-status').textContent = '❌ ' + e.message; }
     renderMulti();
   };
@@ -238,7 +239,7 @@ function ui(game) {
   document.querySelectorAll('#multi [data-mteam]').forEach(b => b.onclick = () => { const t = b.dataset.mteam; settings.team = t; saveSettings(); net.setTeam(t, settings.vehicle[t]); renderMulti(); });
   $('m-start').onclick = async () => {
     if (netMode === 'coop' && net.players.size < 1) { $('m-status').textContent = 'Attends que ton pote rejoigne la partie.'; return; }
-    if (netMode === 'coop') { net.open = true; if (!(await net.enableVoice())) { $('m-status').textContent = '🎙️ Le micro est obligatoire en coop : autorise-le puis réessaie.'; return; } }
+    net.open = true; if (!(await net.enableVoice())) { $('m-status').textContent = '🎙️ Le micro est obligatoire en multijoueur : autorise-le puis réessaie.'; return; }
     net.start({ mode: netMode, weather: settings.weather, time: settings.time, difficulty: settings.difficulty });
   };
   net.on('room', renderMulti); net.on('close', renderMulti);
@@ -246,7 +247,7 @@ function ui(game) {
   net.on('joined', () => { if (net.host) net.send({ t: 'mode', m: netMode }); });
   net.on('error', m => { $('m-status').textContent = m.msg; game.hud.toast(m.msg); });
   net.on('start', m => {
-    if (m.mode === 'coop') { net.open = true; net.enableVoice(); }
+    net.open = true; net.enableVoice().then(ok => { net.applyMic(); net.voiceSync(); if (!ok) game.hud.msg('🎙️ <b>Micro obligatoire en multijoueur</b> : autorise le micro (icône 🔒) pour parler avec les autres.', 'red'); });
     show('none'); game.pendingStart = true; setTimeout(() => game.pendingStart = false, 4000);
     game.hud.big('Départ…');
     if (m.difficulty) settings.difficulty = m.difficulty;

@@ -341,7 +341,7 @@ export class Game {
     if (!ok) this.hud.msg('🎙️ <b>Micro obligatoire</b> pour parler dans la cabine : autorise le micro (icône 🔒 de la barre d’adresse) puis relance.', 'red');
     else { n.applyMic(); n.voiceSync(); if (this.coopKind === 'online') this.hud.toast('🎙️ Micro ouvert : vous vous entendez dans la cabine'); }
     this.listen = new Listener(t => this.handleSpeech(this.coopKind === 'local' ? this.coop?.driver ?? 0 : this.myIdx(), t, true));
-    if (this.listen.ok) { this.listen.start(); this.hud.msg('🗣️ Commandes vocales actives : dis « sans les mains », « attention », « klaxonne », « un sandwich », « relais », « à gauche »… ton routier réagit.'); }
+    if (this.listen.ok && settings.voiceCmd) { this.listen.start(); this.hud.msg('🗣️ Commandes vocales actives : dis « sans les mains », « attention », « klaxonne », « un sandwich », « relais », « à gauche »… ton routier réagit.'); }
   }
   handleSpeech(idx, text, local) {
     const c = this.coop; if (!c || !text) return;
@@ -478,6 +478,8 @@ export class Game {
       if (now !== before && now > 0) { this.hud.big(String(now)); this.audio.beep(660, 0.15); }
       if (this.countdown <= 0) {
         this.setState('play'); this.hud.big('GO !', 'go'); this.audio.beep(1320, 0.35);
+        let seen = false; try { seen = localStorage.getItem('tat_tuto') === '1'; localStorage.setItem('tat_tuto', '1'); } catch (e) { }
+        if (!seen && !this.mirror) ['🎮 <b>Z Q S D</b> (ou flèches) pour conduire, <b>Espace</b> frein à main.', '🎥 <b>C</b> change de caméra : essaie la vue <b>cabine</b> !', '🧭 Suis le GPS en bas à droite et la flèche verte de la carte.', '🚔 Sous 14 km/h au contact de la police pendant 3 s = arrestation. Ne t’arrête pas !', '🛣️ Astuce : la <b>sortie 15</b> mène à la D77, un itinéraire bis plus calme.'].forEach((t, i) => setTimeout(() => this.state === 'play' && this.hud.msg(t), 2500 + i * 4500));
         if (this.mode === 'chase' && this.team === 'police') this.hud.msg(`Le suspect a <b>${this.headStart} s</b> d'avance — attendez le feu vert de la centrale.`);
         if (this.team === 'truck' && (this.mode === 'chase' || this.mode === 'coop')) this.hud.msg(`Vous avez <b>${this.headStart} s</b> d'avance avant le départ de la police. Foncez !`);
         this.time = 0;
@@ -1214,6 +1216,8 @@ class RemoteCar {
     this.body = game.phys.createRigidBody(R.RigidBodyDesc.kinematicPositionBased());
     game.phys.createCollider(R.ColliderDesc.cuboid(def.w / 2, def.h / 2, def.len / 2).setTranslation(0, def.h / 2, 0), this.body);
     if (def.trailer) { const t = buildTrailer(def); this.tmesh = t.group; game.scene.add(this.tmesh); }
+    this.peerId = p.id;
+    if (!def.moto) { this.drv = buildSeated(def.team === 'truck' ? 0x3a5a8a : 0x1d2f5a, def.team === 'truck' ? 0xd8462b : 0x111111); this.drv.group.position.set(def.cab.x, def.cab.y - 0.75, def.cab.z - 0.05); this.mesh.add(this.drv.group); this.drv.armL.rotation.x = this.drv.armR.rotation.x = -1.15; }
     this.curPos = new THREE.Vector3(); this.target = new THREE.Vector3(); this.q = new THREE.Quaternion(); this.tq = new THREE.Quaternion(); this.siren = false; this.lightT = 0;
   }
   apply(s, dt) {
@@ -1231,6 +1235,7 @@ class RemoteCar {
   }
   render() {
     this.mesh.position.set(this.curPos.x, this.curPos.y - (this.def.wheelR + 0.25), this.curPos.z); this.mesh.quaternion.copy(this.q);
+    if (this.drv) { const lv = this.game.net.peerLevel(this.peerId); this.mouthLv = Math.max(lv, (this.mouthLv || 0) * 0.8); this.drv.mouth.scale.y = 0.6 + this.mouthLv * 4; this.drv.head.rotation.y = Math.sin(performance.now() * 0.0007 + this.peerId.length) * 0.4; }
     if (this.model.lights) { this.lightT += 1 / 60; const ph = (this.lightT * 2.6) % 1; this.model.lights.blue.emissiveIntensity = this.siren && ph < 0.3 ? 9 : 0.15; this.model.lights.red.emissiveIntensity = this.siren && ph > 0.5 && ph < 0.8 ? 9 : 0.15; }
   }
   dispose() { this.game.scene.remove(this.mesh); if (this.tmesh) this.game.scene.remove(this.tmesh); this.game.phys.removeRigidBody(this.body); this.game.audio.updateSiren(this, false); }
