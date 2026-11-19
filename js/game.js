@@ -94,7 +94,7 @@ export class Game {
     for (const v of this.vehicles) v.dispose();
     this.vehicles = []; this.police = []; this.fugitives = []; this.spikes.forEach(s => this.scene.remove(s.mesh)); this.spikes = [];
     this.bananas.forEach(b => this.scene.remove(b.mesh)); this.bananas = [];
-    this.cartons?.forEach(c => { this.scene.remove(c.mesh); this.phys.removeRigidBody(c.body); }); this.cartons = []; this.slicks?.forEach(sl => this.scene.remove(sl.mesh)); this.slicks = []; this.smokeT = null; this.parkInfo = null; this.parkHint = false; if (this.bayMark) this.bayMark.visible = false;
+    this.cartons?.forEach(c => { this.scene.remove(c.mesh); this.phys.removeRigidBody(c.body); }); this.cartons = []; this.fugGad = null; this.slicks?.forEach(sl => this.scene.remove(sl.mesh)); this.slicks = []; this.smokeT = null; this.parkInfo = null; this.parkHint = false; if (this.bayMark) this.bayMark.visible = false;
     this.mirrorProps?.forEach(m => this.scene.remove(m)); this.mirrorProps = []; this.bubbleList?.forEach(b => this.scene.remove(b.sp)); this.bubbleList = []; this.heliTarget = null; this.heliT = 0;
     if (this.heli) { this.heli.visible = false; this.heliOn = false; this.heliSpot.intensity = 0; } this.audio.rotor?.(0); this.slow = 0; document.body.classList.remove('slowmo'); this.allies = []; this.mission = null; Voice.stop();
     if (this.person) this.leaveFoot(true);
@@ -1005,6 +1005,16 @@ export class Game {
       this.situationRadio(truck);
     }
     if (this.mission?.obj === 'fragile') this.hud.cargo?.(this.cargo);
+    // le suspect IA se défend avec des gadgets (quantité limitée)
+    if (this.team === 'police' && truck && this.released) {
+      this.fugGad ||= { oil: 2, nails: 2, smoke: 1, cd: 20 };
+      const fg = this.fugGad; fg.cd -= dt;
+      const chaser = this.police.find(p => p.v.road.s < truck.road.s && truck.road.s - p.v.road.s < 45 && Math.abs(p.v.road.d - truck.road.d) < 6);
+      if (chaser && fg.cd <= 0) {
+        const opt = ['oil', 'nails', 'smoke'].filter(k => fg[k] > 0);
+        if (opt.length) { const k = opt[Math.floor(Math.random() * opt.length)]; fg[k]--; fg.cd = 14 + Math.random() * 10; this.dropGadget(k, truck); this.radio({ oil: 'Attention ! Le suspect déverse de l’huile sur la chaussée !', nails: 'Il sème des clous derrière lui ! Écartez-vous !', smoke: 'Fumigène ! Visibilité nulle derrière le camion !' }[k], 'pol'); }
+      }
+    }
     if (this.team === 'police' && pl.disabled) return this.finish(false, 'Véhicule hors service', 'Votre voiture de police est trop endommagée.');
     if (this.timeLeft <= 0) return this.finish(this.team === 'police', this.team === 'police' ? 'Livraison empêchée !' : 'Temps écoulé', 'Le camion n’a pas atteint sa destination à temps.');
   }
