@@ -114,8 +114,12 @@ export class Interior {
     // joint du pare-brise
     K.box(m.rubber, W * 2, 0.04, 0.04, 0, B + 0.06, front - 0.02, 0, 0, 0);
     // colonne + volant
-    const wheelY = eyeY - (this.truck ? 0.44 : 0.36), wheelZ = cab.z + (this.truck ? 0.46 : 0.47), tilt = this.truck ? -0.95 : -0.32;
-    K.cyl(m.leather, 0.045, 0.06, 0.5, dx, wheelY - 0.15, wheelZ + 0.2, 2.21, 0, 0);
+    // volant face au conducteur, sous le combiné (on lit les compteurs au-dessus de la jante)
+    const wheelY = eyeY - (this.truck ? 0.56 : 0.36), wheelZ = cab.z + (this.truck ? 0.56 : 0.47), tilt = this.truck ? -0.6 : -0.32;
+    const colDir = new THREE.Vector3(0, -Math.sin(-tilt) * 0 - 0.55, 0.83).normalize(), colL = this.truck ? 0.55 : 0.4;
+    K.cyl(m.leather, 0.045, 0.06, colL, dx, wheelY + colDir.y * colL / 2, wheelZ + colDir.z * colL / 2, Math.atan2(colDir.z, colDir.y), 0, 0);
+    K.box(m.leather, 0.16, 0.12, 0.14, dx, wheelY + colDir.y * colL * 0.9, wheelZ + colDir.z * colL * 0.9, 0, 0, 0, 0.03); // carénage de colonne
+    for (const sx2 of [-1, 1]) K.box(m.leather, 0.12, 0.02, 0.02, dx + sx2 * 0.1, wheelY + colDir.y * 0.12, wheelZ + colDir.z * 0.12 + 0.02, 0, 0, sx2 * 0.2); // commodos
     // pédales
     for (const [i, px] of [[0, 0.16], [1, 0], [2, -0.14]]) K.box(m.alu, i === 2 ? 0.12 : 0.08, 0.14, 0.03, dx + px, F + 0.18, dz - dashD / 2 - 0.05, -0.5, 0, 0);
     // levier / frein de parc
@@ -187,7 +191,7 @@ export class Interior {
     } else {
       // rétroviseur intérieur
       K.box(m.leather, 0.26, 0.07, 0.03, 0, T - 0.1, front - 0.12, 0.2, 0, 0, 0.02);
-      K.box(m.chrome, 0.24, 0.055, 0.005, 0, T - 0.1, front - 0.14, 0.2, 0, 0);
+      this.innerMirror = new THREE.Vector3(0, T - 0.1, front - 0.15);
       // contrôleur sirène + radio police
       K.box(m.leather, 0.2, 0.08, 0.18, 0, B - 0.12, dz - dashD / 2 - 0.2, -0.3, 0, 0, 0.02);
       cbPos = new THREE.Vector3(-0.05, B - 0.05, dz - dashD / 2 - 0.25);
@@ -284,7 +288,14 @@ export class Interior {
       const anchor = new THREE.Object3D(); anchor.position.set(mx + sx * 0.02, my, mz - 0.25); anchor.rotation.y = Math.PI - sx * 0.12; this.group.add(anchor);
       this.mirrors.push({ sx, rt, anchor });
     }
-    this.mirrorCam = new THREE.PerspectiveCamera(22, 0.5, 0.5, 900);
+    if (this.innerMirror) {
+      const rt = new THREE.WebGLRenderTarget(320, 96); rt.texture.colorSpace = THREE.SRGBColorSpace;
+      const pg = new THREE.PlaneGeometry(0.24, 0.065); const uv = pg.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i));
+      const glass = new THREE.Mesh(pg, new THREE.MeshBasicMaterial({ map: rt.texture, color: 0xdde6ee })); glass.position.copy(this.innerMirror); glass.rotation.set(-0.2, Math.PI, 0); this.group.add(glass);
+      const anchor = new THREE.Object3D(); anchor.position.copy(this.innerMirror).add(new THREE.Vector3(0, 0.02, -0.25)); anchor.rotation.y = Math.PI; this.group.add(anchor);
+      this.mirrors.push({ sx: 0, rt, anchor, aspect: 3.3, fov: 18 });
+    }
+    this.mirrorCam = new THREE.PerspectiveCamera(22, 0.5, 0.3, 900);
     this.mirrorI = 0;
 
     this.t = 0; this.drawT = 0; this.acc = new THREE.Vector3();
@@ -296,6 +307,7 @@ export class Interior {
     const mr = this.mirrors[this.mirrorI++ % this.mirrors.length];
     mr.anchor.updateWorldMatrix(true, false);
     mr.anchor.getWorldPosition(this.mirrorCam.position); mr.anchor.getWorldQuaternion(this.mirrorCam.quaternion);
+    this.mirrorCam.aspect = mr.aspect || 0.5; this.mirrorCam.fov = mr.fov || 22; this.mirrorCam.updateProjectionMatrix();
     this.mirrorCam.rotateY(Math.PI); // la caméra regarde vers l'arrière
     const old = renderer.getRenderTarget(), xr = renderer.xr.enabled, sh = renderer.shadowMap.autoUpdate;
     renderer.xr.enabled = false; renderer.shadowMap.autoUpdate = false;
@@ -355,6 +367,9 @@ export class Interior {
     g.fillStyle = '#26323c'; g.fillRect(200, 120, 112, 8); g.fillStyle = fuel < 0.2 ? '#ff3b2f' : '#3fd07a'; g.fillRect(200, 120, 112 * fuel, 8);
     g.fillStyle = '#8fa3b5'; g.font = '600 11px Arial'; g.fillText('⛽', 192, 124);
     const h = game.env.timeOfDay; g.fillText(String(Math.floor(h)).padStart(2, '0') + ':' + String(Math.floor((h % 1) * 60)).padStart(2, '0') + '   ' + Math.round(v.road.s / 100) / 10 + ' km', 256, 150);
+    const bl = v.blink && (performance.now() % 760) < 380;
+    g.fillStyle = bl && (v.blink & 1) ? '#3fd07a' : '#1a2027'; g.font = '700 22px Arial'; g.fillText('◀', 200, 40); g.fillStyle = bl && (v.blink & 2) ? '#3fd07a' : '#1a2027'; g.fillText('▶', 312, 40);
+    if (v.manual) { g.fillStyle = '#ffb35c'; g.font = '700 11px Arial'; g.fillText('MANUELLE', 256, 112); }
     const leds = [['P', v.handbrake, '#ff3b2f'], ['💡', v.headlights, '#3fd07a'], ['⚠', v.damage > 50, '#ffb020'], ['🚨', v.siren, '#3070ff'], ['❄', game.env.wet > 0.5, '#7fd8ff']];
     leds.forEach(([t, on, c], i) => { g.fillStyle = on ? c : '#1a2027'; g.font = '700 14px Arial'; g.fillText(t, 26 + i * 30 + (i > 2 ? 360 : 0), 178); });
     this.gTex.needsUpdate = true;

@@ -1,7 +1,7 @@
 // Pilotes IA : police tactique (meneur / flanc / arrière / bretelle) et camion en fuite.
 // Ils « comprennent » la situation : ils évitent les civils (angle mort, épaves, chantiers), utilisent la BAU,
 // encerclent le camion quand il ralentit, gardent la sortie 18 quand il s'en approche, se replacent s'ils sont distancés.
-import { laneD, SHOULDER_D, roadToWorld, roadYaw, clamp, DEST, DEST_S, EXIT_GAP, worldToRoad } from './config.js';
+import { laneD, SHOULDER_D, roadToWorld, roadYaw, clamp, DEST, DEST_S, EXIT_GAP, worldToRoad, EXIT15, D77, REST_AREAS } from './config.js';
 
 const _p = { x: 0, z: 0 }, _r = { s: 0, d: 0 };
 const LEFT = laneD(1, 0) + 1.0, RIGHT = SHOULDER_D(1) - 0.3;
@@ -70,7 +70,10 @@ export class AIDriver {
     }
     wantD = lanes[this.lane];
 
-    if (this.role === 'chase' && tgt && !tgt.disabled) {
+    const offT = tgt && tgt.road.d < -19, offMe = d < -17.5;
+    if (this.role === 'chase' && tgt && !tgt.disabled && (offT || offMe)) {
+      ({ wantD, wantV, aimPoint, ignore } = this.offroad(tgt, s, d, spd, offMe));
+    } else if (this.role === 'chase' && tgt && !tgt.disabled) {
       ({ wantD, wantV, ignore, aimPoint } = this.chase(tgt, wantD, wantV, s, d, spd));
     } else if (this.role === 'guard') {
       // garder la bretelle de sortie : stationné en travers du début de la bretelle
@@ -141,6 +144,25 @@ export class AIDriver {
     return { wantD, wantV, ignore, aimPoint };
   }
 
+  // poursuite hors de l'autoroute : rejoindre une sortie, puis foncer droit sur le camion (avec un décalage selon la tactique)
+  offroad(tgt, s, d, spd, offMe) {
+    const g = this.game;
+    if (!offMe) {
+      const gaps = [EXIT15, ...REST_AREAS.map(r => [r.s0, r.s1]), EXIT_GAP];
+      const gap = gaps.find(([a, b]) => b > s + 5 && a < tgt.road.s + 300) || gaps.find(([a, b]) => b > s);
+      if (gap && s > gap[0] + 5 && s < gap[1] - 5) { roadToWorld(Math.min(s + 30, gap[1]), -30, _p); return { wantD: d, wantV: 22, aimPoint: { x: _p.x, z: _p.z }, ignore: tgt }; }
+      return { wantD: SHOULDER_D(1), wantV: gap ? Math.min(45, Math.max(14, (gap[0] - s) * 0.4)) : 30, aimPoint: null, ignore: null };
+    }
+    // sur la D77 ou en plein champ
+    const f = tgt.forward, lead = { lead: 12, flank: 2, tail: -14 }[this.tactic] ?? -10, side = this.tactic === 'flank' ? (this.side || 1) * 3.5 : 0;
+    const tx = tgt.curPos.x + f.x * lead + tgt.lastV.x * 0.6 - f.z * side, tz = tgt.curPos.z + f.z * lead + tgt.lastV.z * 0.6 + f.x * side;
+    const dist = Math.hypot(tx - this.v.curPos.x, tz - this.v.curPos.z);
+    let wantV = Math.max(0, tgt.speed) + clamp(dist * 0.5, -8, 30);
+    if (tgt.kmh < 20 && dist < 14) wantV = Math.max(0, tgt.speed - 3);
+    if (g.env.night > 0.6) wantV = Math.min(wantV, 32);
+    return { wantD: d, wantV, aimPoint: { x: tx, z: tz }, ignore: tgt };
+  }
+
   flee(wantD, wantV, s, d, spd) {
     const g = this.game;
     let aimPoint = null;
@@ -155,6 +177,17 @@ export class AIDriver {
     if (front) { // contourner le bouchon roulant par le côté le plus large
       const l = this.freeAhead(front.v.road.d + 3.8, this.v.def.w, 80).gap, r = this.freeAhead(front.v.road.d - 3.8, this.v.def.w, 80).gap;
       wantD = front.v.road.d + (l > r ? 3.8 : -3.8);
+    }
+    if (this.useBis === undefined) this.useBis = Math.random() < 0.45;
+    if (this.useBis && s > EXIT15[0] - 250 && s < DEST.s0 - 60) {
+      if (d > -16 && s < EXIT15[0]) wantD = SHOULDER_D(1);
+      else {
+        const look = Math.max(14, Math.abs(spd) * 0.9), ts = s + look;
+        let td = ts < D77.s0 ? -15.5 + (D77.d + 15.5) * clamp((ts - EXIT15[0]) / (D77.s0 - EXIT15[0])) : ts < D77.s1 ? D77.d - 1.8 : D77.d + (ts - D77.s1) / (DEST.s0 - D77.s1) * (D77.d + 70);
+        roadToWorld(ts, td, _p); aimPoint = { x: _p.x, z: _p.z }; wantV = ts < D77.s0 ? 17 : 24;
+        if (s > D77.s1) { roadToWorld((DEST.s0 + DEST.s1) / 2, -58, _p); aimPoint = { x: _p.x, z: _p.z }; wantV = 12; }
+        return { wantD, wantV, aimPoint };
+      }
     }
     if (s > DEST.s0 - 240) {
       const ms = (DEST.s0 + DEST.s1) / 2, md = (DEST.d0 + DEST.d1) / 2;

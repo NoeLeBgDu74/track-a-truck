@@ -14,8 +14,19 @@ export class CameraRig {
     this.shake = 0; this.lookBack = false;
   }
   // Copilote : 1re personne côté passager, regard libre (souris), déplacement dans la cabine (ZQSD)
-  updateCopilot(dt, v, input) {
+  updateCopilot(dt, v, input, roof) {
     const cam = this.cam, m = input.mouse, def = v.def, truck = def.team === 'truck';
+    if (roof) { // sur le toit de la remorque, face à l'arrière
+      const rp = this.roofLook ||= { yaw: Math.PI, pitch: 0.25 };
+      rp.yaw -= m.dx * 0.0035 * settings.sens; rp.pitch = clamp(rp.pitch + m.dy * 0.003, -0.6, 1.0);
+      const t = v.trailer, base = t ? t.pos : v.pos, q = t ? t.quat : v.quat;
+      _v.set(Math.sin(performance.now() * 0.004) * 0.08, t ? 4.6 : def.h - v.bodyY + 1.1, t ? -2.5 : -def.len * 0.2).add(this.gforce(v, dt).multiplyScalar(4));
+      cam.position.copy(_v.applyQuaternion(q).add(base));
+      _q.setFromEuler(new THREE.Euler(-rp.pitch * 0.6, rp.yaw + Math.PI, Math.sin(performance.now() * 0.003) * 0.03, 'YXZ'));
+      cam.quaternion.copy(q).multiply(_q);
+      cam.fov += (78 - cam.fov) * Math.min(1, dt * 3); cam.updateProjectionMatrix();
+      return;
+    }
     const cp = this.cop ||= { yaw: 0, pitch: 0.1, head: new THREE.Vector3() };
     cp.yaw = clamp(cp.yaw - m.dx * 0.0035 * settings.sens, -2.9, 2.9);
     cp.pitch = clamp(cp.pitch + m.dy * 0.003 * (settings.invertY ? -1 : 1), -0.9, 1.0);

@@ -236,8 +236,67 @@ body.coop #mapwrap { bottom:150px; } body.coop #speedwrap { bottom:150px; transf
 #chaos { position:fixed; top:22%; left:50%; transform:translateX(-50%); z-index:10; font:700 44px Rajdhani; color:#ff3b2f; display:none; text-shadow:0 0 20px #000; pointer-events:none; }
 #chaos.on { display:block; animation:pulse .3s infinite; }
 
+
+/* carrière */
+.money { font:700 22px Rajdhani; margin:6px 0 14px; } .money b { color:#ffd060; }
+.missions { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:10px; }
+.mis { text-align:left; padding:14px 16px; border-radius:12px; border:1px solid var(--line); background:rgba(255,255,255,.04); color:var(--ink); position:relative; }
+.mis:hover:not(:disabled) { border-color:var(--acc); background:rgba(255,122,26,.1); }
+.mis b { display:block; font:700 20px Rajdhani; letter-spacing:.04em; } .mis span { display:block; color:var(--mute); font-size:12px; line-height:1.45; margin:4px 0 8px; }
+.mis .st { font-size:16px; letter-spacing:2px; } .mis .rw { position:absolute; right:14px; top:14px; color:#ffd060; font:700 15px Rajdhani; }
+.mis:disabled { opacity:.4; cursor:not-allowed; }
+.mis .tags { font-size:11px; color:var(--acc2); }
+.uprow { display:grid; grid-template-columns:1fr auto auto; gap:8px; align-items:center; margin:6px 0; font-size:13px; }
+.uprow small { display:block; color:var(--mute); font-size:11px; }
+.pips i { display:inline-block; width:14px; height:8px; margin-right:3px; border-radius:2px; background:rgba(255,255,255,.12); } .pips i.on { background:var(--acc); }
+.uprow button { padding:6px 10px; border-radius:8px; border:1px solid var(--line); background:rgba(255,255,255,.06); color:var(--ink); font:600 12px Inter; }
+.uprow button:disabled { opacity:.4; }
+/* HUD : niveau de recherche, cargaison, réseau */
+#h-wanted { padding:6px 14px; font-size:22px; letter-spacing:2px; color:#ffd060; display:flex; align-items:center; }
+#h-wanted:empty { display:none; }
+#h-cargo { position:absolute; top:84px; right:16px; width:200px; padding:8px 12px; display:none; font-size:12px; }
+#h-cargo i { display:block; height:6px; background:rgba(255,255,255,.1); border-radius:3px; margin-top:5px; overflow:hidden; } #h-cargo b { display:block; height:100%; width:100%; background:#ffd060; }
+#h-net { position:absolute; top:14px; right:16px; padding:4px 10px; font:600 11px Inter; display:none; }
+#bigtext.wanted { color:#ffd060; font-size:90px; }
+/* ralenti */
+#slowmo { position:fixed; inset:0; z-index:30; pointer-events:none; display:none; }
+body.slowmo #slowmo { display:block; }
+#slowmo .bar { position:absolute; left:0; right:0; height:9vh; background:#000; } #slowmo .top { top:0; } #slowmo .bot { bottom:0; }
+#slowmo-label { position:absolute; bottom:12vh; left:50%; transform:translateX(-50%); font:700 54px Rajdhani; color:#ffd060; letter-spacing:.1em; text-shadow:0 4px 20px #000; }
+#slowmo .rec { position:absolute; top:calc(9vh + 12px); left:24px; color:#ff3b2f; font:700 16px Rajdhani; letter-spacing:.2em; animation:pulse 1s infinite; }
+body.slowmo #hud, body.slowmo #coop { display:none !important; }
+/* mini-jeux */
+#mini { position:fixed; inset:0; z-index:35; display:none; place-items:center; pointer-events:none; }
+#mini.on, #mini.win, #mini.lose { display:grid; }
+#mini .mini-box { pointer-events:auto; width:min(440px,90vw); background:rgba(12,16,22,.92); border:2px solid var(--acc); border-radius:16px; padding:16px; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,.6); }
+#mini.win .mini-box { border-color:#40ff90; } #mini.lose .mini-box { border-color:#ff3b2f; } #mini.err .mini-box { animation:shk .3s; }
+@keyframes shk { 25% { transform:translateX(-8px); } 75% { transform:translateX(8px); } }
+#mini-title { font:700 26px Rajdhani; letter-spacing:.1em; } #mini-hint { color:var(--mute); font-size:13px; margin-bottom:10px; }
+.mg-big { font:700 34px Rajdhani; padding:18px 40px; border-radius:14px; border:0; background:var(--acc); color:#111; cursor:pointer; user-select:none; touch-action:none; }
+.mg-big:active { transform:scale(.95); }
+.mg-bar, .mini-time { height:8px; background:rgba(255,255,255,.1); border-radius:4px; overflow:hidden; margin-top:10px; } .mg-bar b, .mini-time b { display:block; height:100%; width:0; background:#40ff90; } .mini-time b { background:#ff7a1a; width:100%; }
+.mg-area { position:relative; height:200px; background:rgba(255,255,255,.04); border-radius:10px; overflow:hidden; }
+#mg-bee { position:absolute; font-size:42px; cursor:crosshair; transition:left .25s, top .25s; user-select:none; }
+.mg-map { display:grid; grid-template-columns:1fr 1fr; gap:8px; background:#f1e6c8; padding:10px; border-radius:6px; }
+.mg-map button, .mg-ing button { font:700 26px Rajdhani; padding:18px; border-radius:8px; border:2px solid rgba(0,0,0,.2); background:#fff7e0; cursor:pointer; color:#5a4a2a; }
+.mg-map button.done, .mg-ing button.done { opacity:.25; }
+.mg-order { font-size:26px; margin-bottom:10px; } .mg-ing { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; } .mg-ing small { display:block; font:600 10px Inter; }
+#coop-acts { grid-template-columns:repeat(8,1fr); } #coop-acts.roof .ca[data-a="roof"] { background:rgba(255,122,26,.35); }
+/* tactile */
+#touch { position:fixed; inset:0; z-index:15; pointer-events:none; display:none; }
+body.touch[data-state="play"] #touch { display:block; }
+#touch button { pointer-events:auto; width:74px; height:74px; border-radius:50%; border:2px solid rgba(255,255,255,.3); background:rgba(10,14,20,.45); color:#fff; font-size:28px; touch-action:none; user-select:none; }
+#touch button.on { background:rgba(255,122,26,.6); }
+#touch .tl { position:absolute; left:16px; bottom:120px; display:flex; gap:14px; } #touch .tr { position:absolute; right:16px; bottom:120px; display:flex; gap:12px; align-items:flex-end; }
+#touch .tr [data-k=gas] { height:110px; border-radius:20px; } #touch .tr .sm { width:56px; height:56px; font-size:20px; }
+#touch .tt { position:absolute; top:70px; right:16px; display:flex; gap:8px; } #touch .tt button { width:48px; height:48px; font-size:20px; }
+body.touch #speedwrap { transform:scale(.55); transform-origin:left top; top:120px; bottom:auto; } body.touch #keyhint { display:none; }
+
 @media (max-height:760px) { #home .menu { margin-top:18px; gap:6px; } #home .mbtn { padding:9px 16px; font-size:17px; } #home .logo .l1 { font-size:clamp(44px,8vw,96px); } .foot { display:none; } }
 #home { overflow:auto; }
+#menutruck { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:0; }
+#home > *:not(#menutruck) { position:relative; z-index:1; }
+#home .foot { position:absolute; }
 @media (max-width:760px) {
   .teams { grid-template-columns:1fr; }
   #speedwrap { transform:scale(.7); transform-origin:left bottom; }
@@ -264,7 +323,8 @@ body.coop #mapwrap { bottom:150px; } body.coop #speedwrap { bottom:150px; transf
 <section id="home" class="screen shade">
   <div class="logo"><span class="l1">TRACK <span class="a">A</span> TRUCK</span><span class="l2">POURSUITE SUR AUTOROUTE</span></div>
   <div class="menu">
-    <button class="mbtn primary" id="b-play"><span class="ic">▶</span><span>Jouer<small>Poursuite : camion contre police</small></span></button>
+    <button class="mbtn primary" id="b-career"><span class="ic">🏆</span><span>Carrière<small>Missions, étoiles et argent</small></span></button>
+    <button class="mbtn" id="b-play"><span class="ic">▶</span><span>Poursuite rapide<small>Camion contre police</small></span></button>
     <button class="mbtn" id="b-coop"><span class="ic">👬</span><span>Coop à 2<small>Deux routiers, un camion, zéro sommeil</small></span></button>
     <button class="mbtn" id="b-free"><span class="ic">🛣</span><span>Mode libre<small>Rouler sans objectif</small></span></button>
     <button class="mbtn" id="b-garage"><span class="ic">🔧</span><span>Garage<small>Véhicules et peintures</small></span></button>
@@ -293,6 +353,17 @@ body.coop #mapwrap { bottom:150px; } body.coop #speedwrap { bottom:150px; transf
   </div>
 </section>
 
+
+
+<section id="career" class="screen center">
+  <div class="panel" style="width:min(980px,96vw)">
+    <h2>Carrière</h2>
+    <p class="sub">Réussis les missions pour gagner des étoiles et de l'argent. L'argent sert à améliorer ton camion au garage.</p>
+    <div class="money">💰 <b id="cr-money">0</b> €</div>
+    <div class="missions" id="cr-list"></div>
+    <div class="row"><button class="btn" data-back="home">Retour</button><button class="btn" id="cr-garage">🔧 Garage &amp; améliorations</button></div>
+  </div>
+</section>
 
 <section id="setup-coop" class="screen center">
   <div class="panel">
@@ -331,6 +402,8 @@ body.coop #mapwrap { bottom:150px; } body.coop #speedwrap { bottom:150px; transf
     <div id="g-stats"></div>
     <h3 class="r" style="margin:6px 0 0;letter-spacing:.2em;color:var(--mute);font-size:13px">PEINTURE</h3>
     <div id="g-paint"></div>
+    <h3 class="r" style="margin:6px 0 0;letter-spacing:.2em;color:var(--mute);font-size:13px">AMÉLIORATIONS — 💰 <span id="g-money"></span> €</h3>
+    <div id="g-up"></div>
     <p class="hint">Glissez avec la souris pour tourner autour du véhicule.</p>
     <div class="row" style="justify-content:flex-start"><button class="btn" data-back="home">Retour</button></div>
   </div>
@@ -348,6 +421,10 @@ body.coop #mapwrap { bottom:150px; } body.coop #speedwrap { bottom:150px; transf
     <div class="opt"><label>Volume</label><input type="range" id="o-vol" min="0" max="1" step="0.05"></div>
     <div class="opt"><label>Sensibilité souris</label><input type="range" id="o-sens" min="0.3" max="2.5" step="0.1"></div>
     <div class="opt"><label>Inverser l'axe vertical</label><input type="checkbox" id="o-inv"></div>
+    <div class="opt"><label>Voix (radio, routiers, GPS)</label><input type="checkbox" id="o-voices"></div>
+    <div class="opt"><label>Ralentis cinématiques</label><input type="checkbox" id="o-slowmo"></div>
+    <div class="opt"><label>Boîte de vitesses</label><div class="chips" id="o-gear"></div></div>
+    <div class="opt"><label>Commandes tactiles</label><div class="chips" id="o-touch"></div></div>
     <div class="row"><button class="btn go" id="o-back">OK</button></div>
   </div>
 </section>
@@ -394,7 +471,9 @@ body.coop #mapwrap { bottom:150px; } body.coop #speedwrap { bottom:150px; transf
       <div><kbd>X</kbd> Regarder derrière</div>
       <div><kbd>H</kbd> Klaxon</div>
       <div><kbd>L</kbd> Phares</div>
-      <div><kbd>E</kbd> Sirène / gyrophares (police)</div>
+      <div><kbd>G</kbd> Sirène / gyrophares (police)</div>
+      <div><kbd>A</kbd> / <kbd>E</kbd> Clignotants · <kbd>N</kbd> warnings</div>
+      <div><kbd>Maj</kbd> / <kbd>Ctrl</kbd> Rapports (boîte manuelle)</div>
       <div><kbd>B</kbd> Essuie-glaces</div>
       <div><kbd>V</kbd> Parler (radio CB en ligne)</div>
       <div><kbd>Tab</kbd> Relais conducteur (coop)</div>
@@ -420,7 +499,7 @@ body.coop #mapwrap { bottom:150px; } body.coop #speedwrap { bottom:150px; transf
     <div id="end-title"></div>
     <p id="end-sub"></p>
     <div id="end-stats"></div>
-    <div class="row"><button class="btn" id="e-menu">Menu</button><button class="btn go" id="e-again">Rejouer</button></div>
+    <div class="row"><button class="btn" id="e-menu">Menu</button><button class="btn" id="e-again">Rejouer</button><button class="btn go" id="e-next" style="display:none">Mission suivante ▶</button></div>
   </div>
 </section>
 
@@ -450,10 +529,21 @@ body.coop #mapwrap { bottom:150px; } body.coop #speedwrap { bottom:150px; transf
   <div id="coop-acts"></div>
 </div>
 
+
+<div id="slowmo"><div class="bar top"></div><div class="bar bot"></div><div id="slowmo-label"></div><div class="rec">● REPLAY</div></div>
+<div id="mini"><div class="mini-box"><div id="mini-title"></div><div id="mini-hint"></div><div id="mini-body"></div><div class="mini-time"><b id="mini-time"></b></div></div></div>
+<div id="touch">
+  <div class="tl"><button data-k="l">◀</button><button data-k="r">▶</button></div>
+  <div class="tr"><button data-k="hand" class="sm">🅿</button><button data-k="brake">▼</button><button data-k="gas">▲</button></div>
+  <div class="tt"><button data-p="KeyC">🎥</button><button data-p="KeyH">📯</button><button data-p="Escape">⏸</button></div>
+</div>
+
 <!-- HUD -->
 <div id="hud">
   <div id="objective" class="glass hide-end"><div id="h-obj"></div><div id="route"><div id="route-marks"></div></div></div>
-  <div id="topbar"><div id="h-role" class="glass"></div><div id="h-timer" class="glass r"></div></div>
+  <div id="topbar"><div id="h-role" class="glass"></div><div id="h-timer" class="glass r"></div><div id="h-wanted" class="glass"></div></div>
+  <div id="h-cargo" class="glass"><span>🧀 Cargaison</span><i><b></b></i></div>
+  <div id="h-net" class="glass"></div>
   <div id="bust" class="glass"><div id="bust-t"></div><div id="bust-track"><div id="bust-bar"></div></div></div>
   <div id="feed"></div>
   <div id="speedwrap" class="glass">
@@ -470,7 +560,7 @@ body.coop #mapwrap { bottom:150px; } body.coop #speedwrap { bottom:150px; transf
   </div>
   <div id="toast"></div>
   <div id="bigtext"></div>
-  <div id="keyhint"><span><kbd>C</kbd> caméra</span><span><kbd>L</kbd> phares</span><span id="siren-hint"><kbd>E</kbd> sirène</span><span><kbd>H</kbd> klaxon</span><span><kbd>F</kbd> sortir</span><span><kbd>B</kbd> essuie-glaces</span><span><kbd>R</kbd> replacer</span><span><kbd>Échap</kbd> menu</span></div>
+  <div id="keyhint"><span><kbd>C</kbd> caméra</span><span><kbd>L</kbd> phares</span><span id="siren-hint"><kbd>G</kbd> sirène</span><span><kbd>A</kbd><kbd>E</kbd> clignos</span><span><kbd>H</kbd> klaxon</span><span><kbd>F</kbd> sortir</span><span><kbd>B</kbd> essuie-glaces</span><span><kbd>R</kbd> replacer</span><span><kbd>Échap</kbd> menu</span></div>
   <div id="chatkeys"></div>
 </div>
 

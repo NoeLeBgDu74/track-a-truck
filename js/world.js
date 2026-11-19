@@ -1,11 +1,11 @@
 // Autoroute générée progressivement par tronçons de 200 m (maillages + collisions Rapier)
 import * as THREE from 'three';
 import {
-  HALF, RAIL, EDGE, INNER, LANE_W, cx, roadYaw, roadToWorld, worldToRoad, TUNNELS, REST_AREAS, OVERPASSES, DEST, DEST_S, EXIT_GAP,
+  clamp, HALF, RAIL, EDGE, INNER, LANE_W, cx, roadYaw, roadToWorld, worldToRoad, TUNNELS, REST_AREAS, OVERPASSES, DEST, DEST_S, EXIT_GAP,
   railOpen, rng, EXIT_NUM, laneD,
 } from './config.js';
 import { canvasTex, buildTraffic, MAT } from './models.js';
-import { TRAFFIC_TYPES } from './config.js';
+import { TRAFFIC_TYPES, EXIT15, D77, VILLAGE } from './config.js';
 
 const CH = 200, STEP = 5;
 const _p = { x: 0, z: 0 };
@@ -304,6 +304,8 @@ export class World {
     for (const ra of REST_AREAS) if (s1 > ra.s0 - 40 && s0 < ra.s1 + 40) this.buildRest(g, add, col, ra, Math.max(s0, ra.s0 - 40), Math.min(s1, ra.s1 + 40), r, c);
     // sortie + plateforme logistique
     if (s1 > EXIT_GAP[0] && s0 < EXIT_GAP[1] + 300) this.buildDepot(g, add, col, s0, s1, c);
+    // itinéraire bis : sortie 15 + départementale D77 + village
+    if (s1 > EXIT15[0] - 1200 && s0 < D77.s1 + 200) this.buildD77(g, add, col, s0, s1, c, r);
     // panneaux
     this.buildSigns(g, add, col, s0, s1);
     // travaux
@@ -445,6 +447,96 @@ export class World {
     for (let s = Math.ceil(a / 40) * 40; s < b; s += 40) if (s > ra.s0 && s < ra.s1) { roadToWorld(s, -19.5, _p); c.glows.push([_p.x, 8, _p.z]); const p = add(new THREE.CylinderGeometry(0.1, 0.12, 8, 6), this.postMat); p.position.set(_p.x, 4, _p.z); }
   }
 
+  buildD77(g, add, col, s0, s1, c, r) {
+    const R = this.R, H = D77.half, dd = D77.d;
+    if (!this.d77Mat) {
+      const t = canvasTex(512, 512, (ctx, w, h) => {
+        asphaltBase(ctx, w, h, 33);
+        ctx.fillStyle = '#e9e9e2'; ctx.fillRect(10, 0, 8, h); ctx.fillRect(w - 18, 0, 8, h);
+        for (let y = 0; y < h; y += 128) ctx.fillRect(w / 2 - 4, y, 8, 64);
+        ctx.fillStyle = '#6b6a55'; ctx.fillRect(0, 0, 8, h); ctx.fillRect(w - 8, 0, 8, h);
+      }, { repeat: true });
+      t.repeat.set(1, 1 / 10);
+      this.d77Mat = new THREE.MeshStandardMaterial({ map: t, roughness: 0.9 });
+    }
+    // bretelle de sortie 15 (diagonale vers la départementale)
+    const a = Math.max(s0, EXIT15[0]), b = Math.min(s1, D77.s0);
+    if (b > a) {
+      const f = s => clamp((s - EXIT15[0]) / (D77.s0 - EXIT15[0]), 0, 1), e = s => { const k = f(s); return k * k * (3 - 2 * k); };
+      const rows = Math.ceil((b - a) / 5), pos = [], uv = [], idx = [];
+      for (let i = 0; i <= rows; i++) {
+        const sv = a + (b - a) * i / rows, cd = -15.5 + (dd + 15.5) * e(sv);
+        for (const off of [H, -H]) { roadToWorld(sv, cd + off, _p); pos.push(_p.x, 0.03, _p.z); uv.push(off > 0 ? 1 : 0, sv / 10); }
+      }
+      for (let i = 0; i < rows; i++) { const k = i * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
+      const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.setIndex(idx); geo.computeVertexNormals();
+      if (geo.attributes.normal.getY(0) < 0) { idx.reverse(); geo.setIndex(idx); geo.computeVertexNormals(); }
+      add(geo, this.d77Mat);
+    }
+    // la D77
+    const a2 = Math.max(s0, D77.s0), b2 = Math.min(s1, D77.s1);
+    if (b2 > a2) {
+      const geo = sweep([[-H, 0.03], [H, 0.03]], a2, b2, dd, 5, 10);
+      if (geo.attributes.normal.getY(0) < 0) { const ix = [...geo.index.array].reverse(); geo.setIndex(ix); geo.computeVertexNormals(); }
+      add(geo, this.d77Mat);
+      // poteaux de bord de route + panneaux
+      for (let sv = Math.ceil(a2 / 50) * 50; sv < b2; sv += 50) for (const side of [-1, 1]) { roadToWorld(sv, dd + side * (H + 0.8), _p); const m = add(new THREE.CylinderGeometry(0.06, 0.06, 1, 6), this.whiteMat); m.position.set(_p.x, 0.5, _p.z); }
+      if (D77.s0 + 60 >= a2 && D77.s0 + 60 < b2) this.roadSign(add, D77.s0 + 60, dd - 6, ['D77', 'Plateforme Logistique', '>par l’arrière'], '#e0a020');
+      if (VILLAGE.s0 - 80 >= a2 && VILLAGE.s0 - 80 < b2) this.roadSign(add, VILLAGE.s0 - 80, dd - 6, [VILLAGE.name], '#ffffff', '#c22020');
+    }
+    // panneau avancé sur l'autoroute
+    if (EXIT15[0] - 700 >= s0 && EXIT15[0] - 700 < s1) this.roadSign(add, EXIT15[0] - 700, -17, ['Sortie 15', 'D77 — ' + VILLAGE.name, '>700 m'], '#1a4fa0');
+    // liaison vers l'arrière de la plateforme
+    const a3 = Math.max(s0, D77.s1), b3 = Math.min(s1, DEST.s0 + 6);
+    if (b3 > a3) add(flatQuad(a3, b3, dd + H - (a3 - D77.s1) / (DEST.s0 + 6 - D77.s1) * (dd + H + 62), dd - H - (a3 - D77.s1) / (DEST.s0 + 6 - D77.s1) * (dd - H + 80), dd + H - (b3 - D77.s1) / (DEST.s0 + 6 - D77.s1) * (dd + H + 62), dd - H - (b3 - D77.s1) / (DEST.s0 + 6 - D77.s1) * (dd - H + 80), 0.03, 8), this.lotMat);
+    // village
+    if (s1 > VILLAGE.s0 && s0 < VILLAGE.s1) {
+      const n = 14, walls = new THREE.InstancedMesh(this.boxGeo, this.wallMat, n), roofs = new THREE.InstancedMesh(this.roofGeo, this.roofMat, n);
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pos = new THREE.Vector3(), cl = new THREE.Color();
+      let k = 0;
+      for (let i = 0; i < n; i++) {
+        const sv = VILLAGE.s0 + (i / n) * (VILLAGE.s1 - VILLAGE.s0) + r() * 10;
+        if (sv < s0 || sv >= s1) continue;
+        const side = i % 2 ? 1 : -1, dv = dd + side * (13 + r() * 6);
+        roadToWorld(sv, dv, _p);
+        const w = 8 + r() * 4, l = 9 + r() * 5, h = 5 + r() * 3;
+        q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), roadYaw(sv) + (r() < 0.5 ? 0 : Math.PI / 2));
+        m4.compose(pos.set(_p.x, 0, _p.z), q, sc.set(w, h, l)); walls.setMatrixAt(k, m4); walls.setColorAt(k, cl.set([0xefe6d2, 0xe2d4b8, 0xd9cfc0, 0xf3efe6, 0xe8d0b0][k % 5]));
+        m4.compose(pos.set(_p.x, h - 0.72, _p.z), q, sc.set(w, 3.2, l)); roofs.setMatrixAt(k, m4); roofs.setColorAt(k, cl.set([0xa3452d, 0x8e3a26, 0x5a5a5e][k % 3]));
+        const yaw = roadYaw(sv);
+        this.phys.createCollider(R.ColliderDesc.cuboid(Math.max(w, l) / 2, h / 2, Math.max(w, l) / 2).setTranslation(_p.x, h / 2, _p.z).setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }), c.body);
+        k++;
+      }
+      walls.count = roofs.count = k;
+      for (const im of [walls, roofs]) { im.castShadow = true; im.receiveShadow = true; im.userData.own = true; g.add(im); }
+      // clocher
+      const cs = (VILLAGE.s0 + VILLAGE.s1) / 2;
+      if (cs >= s0 && cs < s1) {
+        roadToWorld(cs, dd - 32, _p);
+        const t1 = add(new THREE.BoxGeometry(6, 18, 6), new THREE.MeshStandardMaterial({ color: 0xd8cfb8, roughness: 0.9 }), true); t1.position.set(_p.x, 9, _p.z);
+        const t2 = add(new THREE.ConeGeometry(4.5, 8, 4), new THREE.MeshStandardMaterial({ color: 0x4a4f58 }), true); t2.position.set(_p.x, 22, _p.z); t2.rotation.y = Math.PI / 4;
+        const nave = add(new THREE.BoxGeometry(10, 9, 22), new THREE.MeshStandardMaterial({ color: 0xd8cfb8, roughness: 0.9 }), true); roadToWorld(cs - 14, dd - 32, _p); nave.position.set(_p.x, 4.5, _p.z); nave.rotation.y = roadYaw(cs);
+        col(5, 9, 11, _p.x, 4.5, _p.z, roadYaw(cs));
+        // tracteur garé sur le bas-côté (obstacle)
+        roadToWorld(cs + 80, dd + H + 0.5, _p);
+        const tr = new THREE.Group(); tr.position.set(_p.x, 0, _p.z); tr.rotation.y = roadYaw(cs);
+        const body = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.4, 3.2), new THREE.MeshStandardMaterial({ color: 0x2b8a3a })); body.position.y = 1.2; tr.add(body);
+        const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.4, 1.4), MAT.glass); cabin.position.set(0, 2.5, -0.6); tr.add(cabin);
+        for (const [x, z, rr] of [[1, -1, 0.9], [-1, -1, 0.9], [0.95, 1.1, 0.55], [-0.95, 1.1, 0.55]]) { const wh = new THREE.Mesh(new THREE.CylinderGeometry(rr, rr, 0.5, 14), this.darkMat); wh.rotation.z = Math.PI / 2; wh.position.set(x, rr, z); tr.add(wh); }
+        tr.traverse(o => o.castShadow = true); g.add(tr);
+        col(1.2, 1.4, 1.8, _p.x, 1.4, _p.z, roadYaw(cs));
+      }
+    }
+  }
+
+  roadSign(add, s, d, lines, bg, border) {
+    roadToWorld(s, d, _p);
+    const tex = signTex(lines, bg, 640, 360);
+    const pan = add(new THREE.PlaneGeometry(4.2, 2.4), new THREE.MeshStandardMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.1 }));
+    pan.position.set(_p.x, 3, _p.z); pan.rotation.y = roadYaw(s) + Math.PI;
+    for (const o of [-1.6, 1.6]) { const p = add(new THREE.CylinderGeometry(0.07, 0.07, 3), this.postMat); roadToWorld(s, d + o, _p); p.position.set(_p.x, 1.5, _p.z); }
+  }
+
   buildDepot(g, add, col, s0, s1, c) {
     // bretelle de sortie
     const a = Math.max(s0, EXIT_GAP[0]), b = Math.min(s1, DEST.s0);
@@ -513,7 +605,8 @@ export class World {
 
   buildScenery(g, s0, s1, r, k, tun, c) {
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pos = new THREE.Vector3(), col = new THREE.Color();
-    const blocked = (s, d) => (d < -18 && d > -100 && REST_AREAS.some(ra => s > ra.s0 - 50 && s < ra.s1 + 50)) || (d < -18 && d > -170 && s > EXIT_GAP[0] - 20 && s < DEST.s1 + 40) || (tun && s > tun[0] - 10 && s < tun[1] + 10 && Math.abs(d) < 62);
+    const onD77 = (s, d) => (s > EXIT15[0] - 20 && s < D77.s0 + 30 && d < -14 && d > -150) || (s > D77.s0 - 30 && s < D77.s1 + 140 && d < -126 && d > -156) || (s > D77.s1 - 20 && s < DEST.s0 + 20 && d < -55 && d > -150) || (s > VILLAGE.s0 - 60 && s < VILLAGE.s1 + 60 && d < -100 && d > -215);
+    const blocked = (s, d) => onD77(s, d) || (d < -18 && d > -100 && REST_AREAS.some(ra => s > ra.s0 - 50 && s < ra.s1 + 50)) || (d < -18 && d > -170 && s > EXIT_GAP[0] - 20 && s < DEST.s1 + 40) || (tun && s > tun[0] - 10 && s < tun[1] + 10 && Math.abs(d) < 62);
     // champs
     const nf = 6, fi = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), this.fieldMat, nf);
     const fc = [0xd8c070, 0x86a040, 0x8a6a48, 0xa8b860, 0x6f8f3a, 0xc8a050];

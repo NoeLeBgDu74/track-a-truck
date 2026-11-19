@@ -1,6 +1,7 @@
 // Véhicule pilotable : Rapier DynamicRayCastVehicleController + transmission + dégâts + feux
 import * as THREE from 'three';
-import { VEHICLES, clamp, worldToRoad } from './config.js';
+import { VEHICLES, clamp, worldToRoad, upLevel, settings } from './config.js';
+import { canvasTex } from './models.js';
 import { buildPoliceCar, buildPlayerTruck, buildTrailer, makeWheel, MAT } from './models.js';
 import { Interior } from './interior.js';
 
@@ -99,7 +100,43 @@ export class Vehicle {
     if (def.trailer) this.makeTrailer(x, z, yaw);
     this.lightT = Math.random() * 3;
     this.accL = new THREE.Vector3();
+    // améliorations du garage (carrière)
+    const up = k => (opts.upgrades === false ? 0 : upLevel(defId, k));
+    this.pMul = 1 + up('engine') * 0.12; this.gMul = 1 + up('tires') * 0.08; this.armor = 1 - up('armor') * 0.18; this.tankLvl = up('tank');
+    this.manual = !opts.ai && settings.gearbox === 'manual'; this.mGear = 1;
+    this.blink = 0; this.blinkT = 0; this.hornStuck = 0; this.flat = 0;
     if (opts.interior) this.addInterior();
+  }
+
+  // carrosserie froissée au point d'impact (opposé au changement de vitesse), vitres fêlées
+  deform(dvWorld, mag) {
+    if (mag < 2.2) return;
+    const q = _q.copy(this.curQuat).invert(), dir = dvWorld.applyQuaternion(q).normalize();
+    const def = this.def, half = new THREE.Vector3(def.w / 2, 1, def.len / 2);
+    const hit = new THREE.Vector3(-dir.x * half.x, 0, -dir.z * half.z);
+    if (Math.abs(dir.x) > Math.abs(dir.z)) hit.z = 0; else hit.x = 0;
+    hit.y = this.bodyY + 0.4;
+    const amt = Math.min(0.22, (mag - 2) * 0.03), rad = 0.9 + mag * 0.05;
+    this.model.group.traverse(o => {
+      if (!o.isMesh || !(o.name === 'paint' || o.name === 'body' || o.name === 'head' || o.name === 'tail')) return;
+      const pos = o.geometry.attributes.position; let ch = false;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+        const d2 = (x - hit.x) ** 2 + (y - hit.y) ** 2 * 0.5 + (z - hit.z) ** 2;
+        if (d2 > rad * rad) continue;
+        const f = amt * (1 - Math.sqrt(d2) / rad) * (0.7 + Math.random() * 0.6);
+        pos.setXYZ(i, x + dir.x * f, y - f * 0.25, z + dir.z * f); ch = true;
+      }
+      if (ch) { pos.needsUpdate = true; o.geometry.computeVertexNormals(); }
+    });
+    if (this.damage > 35 && !this.cracked) {
+      this.cracked = true;
+      const glass = this.model.group.getObjectByName('glass');
+      if (glass) {
+        const t = canvasTex(512, 512, (g, w, h) => { g.clearRect(0, 0, w, h); g.strokeStyle = 'rgba(230,240,255,0.85)'; g.lineWidth = 1.5; const cx = w * (0.3 + Math.random() * 0.4), cy = h * 0.5; for (let i = 0; i < 22; i++) { g.beginPath(); g.moveTo(cx, cy); let x = cx, y = cy; const a = Math.random() * 7; for (let k = 0; k < 6; k++) { x += Math.cos(a + (Math.random() - 0.5)) * 30; y += Math.sin(a + (Math.random() - 0.5)) * 30; g.lineTo(x, y); } g.stroke(); } for (let r = 20; r < 90; r += 25) { g.beginPath(); g.arc(cx, cy, r, 0, 7); g.stroke(); } });
+        glass.material = glass.material.clone(); glass.material.map = t; glass.material.opacity = 0.85; glass.material.needsUpdate = true;
+      }
+    }
   }
 
   addInterior() {
@@ -165,7 +202,13 @@ export class Vehicle {
 
     // force moteur limitée par la traction puis par la puissance
     const vmax = (this.reverse ? 25 : def.vmax * dmgF * (this.spikes > 0 ? 0.45 : 1)) / 3.6;
-    let F = Math.min(this.mass * def.fmax, def.power * dmgF / Math.max(aspd, 4)) * this.thr;
+    let F = Math.min(this.mass * def.fmax, def.power * this.pMul * dmgF / Math.max(aspd, 4)) * this.thr;
+    if (this.manual && !this.reverse) { // boîte manuelle : couple selon le rapport, rupteur, calage en sous-régime
+      const bandM = (def.vmax / 3.6) / def.gears * 1.1, lo = (this.mGear - 1) * bandM, hi = this.mGear * bandM * 1.08;
+      F *= (1.25 - (this.mGear / def.gears) * 0.5);
+      if (aspd > hi) F *= Math.max(0, 1 - (aspd - hi) * 0.8);
+      if (aspd < lo * 0.6) F *= 0.35;
+    }
     if (aspd > vmax) F *= Math.max(0, 1 - (aspd - vmax) * 0.6);
     if (this.reverse) F = -F * 0.5;
     this.shiftT = (this.shiftT || 0) - dt;
@@ -184,7 +227,7 @@ export class Vehicle {
     const gripMul = (1 - wet * 0.22) * (this.spikes > 0 ? 0.55 : 1) * (this.oil > 0 ? 0.18 : 1);
     this.wheelDefs.forEach((w, i) => {
       if (w.front) vc.setWheelSteering(i, this.steer);
-      vc.setWheelFrictionSlip(i, def.grip * gripMul * (this.handbrake && !w.front ? 0.6 : 1));
+      vc.setWheelFrictionSlip(i, def.grip * this.gMul * gripMul * (this.handbrake && !w.front ? 0.6 : 1));
       vc.setWheelSideFrictionStiffness(i, this.handbrake && !w.front ? 0.35 : 1);
       vc.setWheelEngineForce(i, w.drive ? F / this.nDrive : 0);
       let bi = (brakeF + roll) / this.wheelDefs.length;
@@ -219,7 +262,7 @@ export class Vehicle {
 
     // régime / rapports (boîte auto)
     const band = (def.vmax / 3.6) / def.gears * 1.1;
-    let g = clamp(Math.floor(aspd / band) + 1, 1, def.gears);
+    let g = this.manual ? this.mGear : clamp(Math.floor(aspd / band) + 1, 1, def.gears);
     if (g !== this.gear) { if (!this.reverse && aspd > 1) this.shiftT = def.team === 'truck' ? 0.35 : 0.15; this.gear = g; }
     const frac = clamp((aspd - (g - 1) * band) / band);
     const rpmT = this.disabled ? 0 : def.idle + (def.red - def.idle) * (g === 1 ? frac * 0.85 + 0.05 * this.thr : 0.42 + frac * 0.5) + (this.onGround ? 0 : this.thr * 1500);
@@ -241,6 +284,7 @@ export class Vehicle {
     this.curPos.set(p.x, p.y, p.z); this.curQuat.set(q.x, q.y, q.z, q.w);
     _v.set(v.x, v.y, v.z);
     const dv = _v.distanceTo(this.lastV);
+    const dvec = _v.clone().sub(this.lastV);
     if (dt > 0) { // accélération ressentie dans la cabine (repère véhicule)
       _f.copy(_v).sub(this.lastV).divideScalar(dt).applyQuaternion(_q.set(q.x, q.y, q.z, q.w).invert());
       _f.clampLength(0, 40);
@@ -259,7 +303,8 @@ export class Vehicle {
       const px = av.x - up.x * ay, py = av.y - up.y * ay, pz = av.z - up.z * ay, pr = Math.hypot(px, py, pz);
       if (pr > MAXR) { const k = MAXR / pr; b.setAngvel({ x: up.x * ay + px * k, y: up.y * ay + py * k, z: up.z * ay + pz * k }, true); }
       if (this.trailer) { const tv = this.trailer.body.linvel(); if (tv.y > 1.0) this.trailer.body.setLinvel({ x: tv.x, y: 1.0, z: tv.z }, true); }
-      this.damage = Math.min(100, this.damage + (dv - 1.1) * k);
+      this.damage = Math.min(100, this.damage + (dv - 1.1) * k * this.armor);
+      if (dt > 0) this.deform(dvec, dv);
       if (this.damage >= 100 && !this.disabled) { this.disabled = true; this.game.onDisabled?.(this); }
     }
     if (this.trailer) {
@@ -286,6 +331,8 @@ export class Vehicle {
       m.position.set(w.x, w.conY - len, w.z);
       w.rot += (this.speed / this.def.wheelR) * (1 / 60) * (this.handbrake && !w.front ? 0 : 1);
       m.rotation.set(w.rot, w.front ? this.steer : 0, 0, 'YXZ');
+      if (this.spikes > 0 && !this.flat) { this.flat = 1; }
+      m.scale.set(1, this.flat ? 0.86 : 1, this.flat ? 0.86 : 1); if (this.flat) m.position.y -= this.def.wheelR * 0.12;
     });
     this.steeringWheel.rotation.z = -this.steer * 6;
     if (this.trailer) {
@@ -313,6 +360,10 @@ export class Vehicle {
     const d = this.def, m = this.mesh.matrixWorld, y = (d.team === 'truck' ? 1.05 : (d.id === 'suv' ? 0.95 : 0.8)) - this.bodyY;
     const hw = d.w * 0.36, L = d.len / 2;
     if (this.headlights) for (const sx of [-1, 1]) out.push([_v.set(sx * hw, y, L + 0.1).applyMatrix4(m).toArray(), 0xfff0d8, 1.6]);
+    if (this.blink && (performance.now() % 760) < 380) {
+      const L2 = d.len / 2 + 0.06, y2 = y + 0.05;
+      for (const sx of this.blink === 3 ? [-1, 1] : [this.blink === 1 ? 1 : -1]) { out.push([_v.set(sx * d.w * 0.48, y2, L2).applyMatrix4(m).toArray(), 0xff9a10, 1.1]); out.push([_v.set(sx * d.w * 0.48, y2, -L2).applyMatrix4(m).toArray(), 0xff9a10, 1.1]); }
+    }
     const tailOn = this.headlights || this.brk > 0.1;
     if (tailOn) {
       if (this.trailer) { const tm = this.trailer.mesh.matrixWorld; for (const sx of [-1, 1]) out.push([_v.set(sx * 0.95, 0.72 - this.trailer.ty, 1.2 - d.trailer.len - 0.1).applyMatrix4(tm).toArray(), 0xff2020, this.brk > 0.1 ? 1.4 : 0.7]); }

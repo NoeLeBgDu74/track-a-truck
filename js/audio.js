@@ -208,4 +208,19 @@ export class Audio {
       } else { const f = mel[i]; if (f) tone(f, step * (id === 'berceuse' ? 1.8 : 0.9), id === 'berceuse' ? 'sine' : 'square', id === 'berceuse' ? 0.07 : 0.035, t); if (id === 'musette' && i % 3 === 0) tone(98, 0.2, 'triangle', 0.08, t); }
     }, step * 1000);
   }
+
+  // rotor d'hélicoptère (battement grave) — gain selon la distance
+  rotor(g) {
+    if (!this.ctx) return;
+    if (!this._rot) {
+      const C = this.ctx, s = C.createBufferSource(); s.buffer = this.brownBuf; s.loop = true;
+      const f = C.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 260;
+      const am = C.createGain(); am.gain.value = 0.5; const lfo = C.createOscillator(); lfo.frequency.value = 17; const lg = C.createGain(); lg.gain.value = 0.5; lfo.connect(lg); lg.connect(am.gain);
+      const out = C.createGain(); out.gain.value = 0; s.connect(f); f.connect(am); am.connect(out); out.connect(this.bus); s.start(); lfo.start();
+      this._rot = out;
+    }
+    this._rot.gain.setTargetAtTime(g, this.ctx.currentTime, 0.2);
+  }
+  tick() { this.oneShot(null, (C, dest, t) => { const o = C.createOscillator(); o.type = 'square'; o.frequency.value = 1800; const g = C.createGain(); g.gain.setValueAtTime(0.03, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.03); o.connect(g); g.connect(dest); o.start(t); o.stop(t + 0.04); }); }
+  thud(pos) { this.oneShot(pos, (C, dest, t) => { const o = C.createOscillator(); o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(50, t + 0.2); const g = C.createGain(); g.gain.setValueAtTime(0.4, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.25); o.connect(g); g.connect(dest); o.start(t); o.stop(t + 0.3); }); }
 }

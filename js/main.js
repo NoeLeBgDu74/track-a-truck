@@ -2,7 +2,8 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
-import { settings, saveSettings, VEHICLES, TEAM_VEHICLES, PAINTS } from './config.js';
+import { settings, saveSettings, VEHICLES, TEAM_VEHICLES, PAINTS, MISSIONS, UPGRADES, SPECIAL_PAINTS, profile, saveProfile, upLevel } from './config.js';
+import { MenuTruck } from './menutruck.js';
 import { QUICK_CHAT } from './net.js';
 
 const $ = id => document.getElementById(id);
@@ -42,6 +43,9 @@ async function boot() {
     renderer.render(game.renderScene || game.scene, game.renderCamera || camera);
     fps(dt);
   });
+  // onglet en arrière-plan : le navigateur suspend l'affichage, mais la partie continue (indispensable en ligne pour l'hôte)
+  let bgLast = performance.now();
+  setInterval(() => { const n = performance.now(); if (document.hidden && game.state !== 'menu') { game.frame(Math.min(0.1, (n - bgLast) / 1000)); last = n; } bgLast = n; }, 33);
   setLoad('Prêt', 100);
   setTimeout(() => $('loading').classList.add('gone'), 300);
   ui(game);
@@ -58,6 +62,30 @@ function ui(game) {
   const clickSnd = () => game.audio.ctx && game.audio.beep(1000, 0.04, 0.05);
   document.addEventListener('click', e => { if (e.target.closest('button')) { game.audio.init(); clickSnd(); } });
   show('home');
+  // petit camion qui suit la souris sur l'accueil
+  const mt = new MenuTruck($('home')); let mtl = performance.now();
+  (function loop() { const n = performance.now(); if ($('home').classList.contains('on')) mt.step((n - mtl) / 1000); mtl = n; requestAnimationFrame(loop); })();
+  // commandes tactiles
+  const isTouch = () => settings.touch === 'on' || (settings.touch === 'auto' && matchMedia('(pointer: coarse)').matches);
+  document.body.classList.toggle('touch', isTouch());
+  document.querySelectorAll('#touch [data-k]').forEach(b => {
+    const k = b.dataset.k, set = v => { game.input.touch[k] = v; b.classList.toggle('on', v); };
+    b.addEventListener('pointerdown', e => { e.preventDefault(); b.setPointerCapture(e.pointerId); set(true); });
+    b.addEventListener('pointerup', () => set(false)); b.addEventListener('pointercancel', () => set(false));
+  });
+  document.querySelectorAll('#touch [data-p]').forEach(b => b.addEventListener('pointerdown', e => { e.preventDefault(); game.input.pressed.add(b.dataset.p); if (b.dataset.p === 'KeyH') { game.input.keys.add('KeyH'); setTimeout(() => game.input.keys.delete('KeyH'), 500); } }));
+  // carrière
+  $('b-career').onclick = () => { show('career'); renderCareer(); };
+  function renderCareer() {
+    $('cr-money').textContent = profile.money;
+    $('cr-list').innerHTML = MISSIONS.map((m, i) => {
+      const st = profile.stars[m.id] || 0, locked = i > 0 && !(profile.stars[MISSIONS[i - 1].id] > 0);
+      const w = { clear: '☀', rain: '🌧', storm: '⛈', fog: '🌫' }[m.weather], t = { day: 'jour', dusk: 'crépuscule', night: 'nuit' }[m.time];
+      return `<button class="mis" data-m="${m.id}" ${locked ? 'disabled' : ''}><span class="rw">${m.reward} €</span><b>${i + 1}. ${m.name}</b><span>${m.desc}</span><div class="tags">${w} ${t} · ${{ easy: 'facile', normal: 'normal', hard: 'difficile' }[m.diff]}${m.heat ? ' · ' + '★'.repeat(m.heat + 1) + ' recherché' : ''}</div><div class="st">${locked ? '🔒' : '⭐'.repeat(st) + '☆'.repeat(3 - st)}</div></button>`;
+    }).join('');
+    $('cr-list').querySelectorAll('.mis').forEach(b => b.onclick = () => { show('none'); game.start({ mode: 'chase', team: 'truck', mission: b.dataset.m }); });
+  }
+  $('cr-garage').onclick = () => { show('garage'); game.openGarage('truck'); renderGarage(); };
   // accueil
   $('b-play').onclick = () => { show('setup'); renderSetup(); };
   $('b-free').onclick = () => { show('setup-free'); renderFree(); };
@@ -79,7 +107,7 @@ function ui(game) {
     seg('s-time', 'time', [['day', 'Jour'], ['dusk', 'Crépuscule'], ['night', 'Nuit'], ['cycle', 'Cycle']], renderSetup);
     $('s-brief').innerHTML = team === 'truck'
       ? '<b>Objectif :</b> livrer la cargaison à la <b>Plateforme Logistique</b> (sortie 18, 7,6 km) avant la fin du chrono. Vous avez <b>15 s d’avance</b>. Si la police vous immobilise (vitesse &lt; 14 km/h à son contact) ou détruit votre camion, c’est perdu. Méfiez-vous des barrages et des herses.'
-      : '<b>Objectif :</b> intercepter le camion suspect avant qu’il n’atteigne la <b>Plateforme Logistique</b>. Il part avec <b>10 s d’avance</b>. Passez devant, freinez, coincez-le contre le trafic : maintenez-le sous 14 km/h à votre contact pour l’interpeller. <b>E</b> = sirène.';
+      : '<b>Objectif :</b> intercepter le camion suspect avant qu’il n’atteigne la <b>Plateforme Logistique</b>. Il part avec <b>10 s d’avance</b>. Passez devant, freinez, coincez-le contre le trafic : maintenez-le sous 14 km/h à votre contact pour l’interpeller. <b>G</b> = sirène.';
   }
   function seg(id, key, opts, re) {
     $(id).innerHTML = opts.map(([v, l]) => `<button class="chip ${settings[key] === v ? 'sel' : ''}" data-v="${v}">${l}</button>`).join('');
@@ -98,7 +126,7 @@ function ui(game) {
     seg('c-time', 'time', [['day', 'Jour'], ['dusk', 'Crépuscule'], ['night', 'Nuit'], ['cycle', 'Cycle']], renderCoop);
   }
   $('c-go').onclick = () => { show('none'); game.start({ mode: 'coop', coop: coopKind }); };
-  $('coop-acts').addEventListener('click', e => { const b = e.target.closest('.ca'); if (b) game.coopAct(b.dataset.a); });
+  $('coop-acts').addEventListener('pointerdown', e => { const b = e.target.closest('.ca'); if (b) { e.preventDefault(); e.stopPropagation(); game.audio.init(); game.coopAct(b.dataset.a); b.classList.add('hit'); setTimeout(() => b.classList.remove('hit'), 150); } });
 
   // mode libre
   let freeVeh = settings.vehicle[settings.team];
@@ -122,7 +150,22 @@ function ui(game) {
     $('g-stats').innerHTML = stat('Vitesse max', d.vmax / 230) + stat('Accélération', Math.min(1, d.power / (d.mass + tm) / 160)) + stat('Masse', Math.min(1, (d.mass + tm) / 22000)) + stat('Maniabilité', d.steer * (d.team === 'truck' ? 1.2 : 1.45) - (d.trailer ? 0.25 : 0)) +
       `<p class="specs">${d.vmax} km/h · ${Math.round(d.power / 1000 * 1.36)} ch · ${((d.mass + tm) / 1000).toFixed(1)} t</p>`;
     $('g-paint').innerHTML = PAINTS.map(c => `<button class="sw ${((settings.paint[cur] ?? d.color) === c) ? 'sel' : ''}" style="background:#${c.toString(16).padStart(6, '0')}" data-c="${c}"></button>`).join('');
-    $('g-paint').querySelectorAll('.sw').forEach(b => b.onclick = () => { settings.paint[cur] = +b.dataset.c; saveSettings(); game.showPreview(cur); renderGarage(); });
+    $('g-paint').innerHTML += SPECIAL_PAINTS.map(p => `<button class="sw ${((settings.paint[cur] ?? d.color) === p.c) ? 'sel' : ''}" style="background:#${p.c.toString(16).padStart(6, '0')};${profile.paints.includes(p.c) ? '' : 'opacity:.45'}" data-c="${p.c}" data-cost="${profile.paints.includes(p.c) ? 0 : p.cost}" title="${p.name}${profile.paints.includes(p.c) ? '' : ' — ' + p.cost + ' €'}"></button>`).join('');
+    $('g-paint').querySelectorAll('.sw').forEach(b => b.onclick = () => {
+      const cost = +(b.dataset.cost || 0);
+      if (cost) { if (profile.money < cost) { game.hud.toast('Pas assez d’argent (' + cost + ' €)'); return; } profile.money -= cost; profile.paints.push(+b.dataset.c); saveProfile(); }
+      settings.paint[cur] = +b.dataset.c; saveSettings(); game.showPreview(cur); renderGarage();
+    });
+    $('g-money').textContent = profile.money;
+    $('g-up').innerHTML = Object.entries(UPGRADES).filter(([k]) => d.team === 'truck' || k !== 'tank').map(([k, u]) => {
+      const lv = upLevel(cur, k), cost = u.cost[lv];
+      return `<div class="uprow"><div>${u.name}<small>${u.desc}</small></div><div class="pips">${[0, 1, 2].map(i => `<i class="${i < lv ? 'on' : ''}"></i>`).join('')}</div><button data-k="${k}" ${cost == null || profile.money < cost ? 'disabled' : ''}>${cost == null ? 'MAX' : cost + ' €'}</button></div>`;
+    }).join('');
+    $('g-up').querySelectorAll('button').forEach(b => b.onclick = () => {
+      const k = b.dataset.k, lv = upLevel(cur, k), cost = UPGRADES[k].cost[lv];
+      if (cost == null || profile.money < cost) return;
+      profile.money -= cost; (profile.up[cur] ||= {})[k] = lv + 1; saveProfile(); game.audio.init(); game.audio.beep(1200, 0.12); renderGarage();
+    });
   }
 
   // paramètres
@@ -137,6 +180,10 @@ function ui(game) {
     $('o-vol').value = settings.volume; $('o-vol').oninput = e => { settings.volume = +e.target.value; saveSettings(); game.audio.setVolume(settings.volume); };
     $('o-sens').value = settings.sens; $('o-sens').oninput = e => { settings.sens = +e.target.value; saveSettings(); };
     $('o-inv').checked = settings.invertY; $('o-inv').onchange = e => { settings.invertY = e.target.checked; saveSettings(); };
+    $('o-voices').checked = settings.voices; $('o-voices').onchange = e => { settings.voices = e.target.checked; saveSettings(); };
+    $('o-slowmo').checked = settings.slowmo; $('o-slowmo').onchange = e => { settings.slowmo = e.target.checked; saveSettings(); };
+    seg('o-gear', 'gearbox', [['auto', 'Automatique'], ['manual', 'Manuelle (Maj/Ctrl)']], renderSettings);
+    seg('o-touch', 'touch', [['auto', 'Auto'], ['on', 'Toujours'], ['off', 'Jamais']], () => { document.body.classList.toggle('touch', isTouch()); renderSettings(); });
     $('o-back').onclick = () => { show(settingsBack); };
   }
 
@@ -146,6 +193,7 @@ function ui(game) {
   $('p-settings').onclick = () => { show('settings'); renderSettings('none'); $('o-back').onclick = () => { show('none'); }; };
   $('p-quit').onclick = () => { game.toMenu(); show('home'); };
   $('e-again').onclick = () => { show('none'); game.start(game.lastCfg); };
+  $('e-next').onclick = () => { show('none'); game.start({ mode: 'chase', team: 'truck', mission: $('e-next').dataset.m }); };
   $('e-menu').onclick = () => { game.toMenu(); show('home'); };
 
   // multijoueur (PeerJS : code de partie, comme 2X2)
@@ -186,10 +234,11 @@ function ui(game) {
   $('m-joincode').addEventListener('keydown', e => { if (e.key === 'Enter') join($('m-joincode').value.trim()); });
   $('m-copy').onclick = () => { const u = location.href.split('?')[0] + '?room=' + net.code; try { navigator.clipboard.writeText(u); $('m-status').textContent = '🔗 Lien copié : ' + u; } catch (e) { $('m-status').textContent = u; } };
   $('m-leave').onclick = () => { net.leave(); renderMulti(); };
-  $('m-voice').onclick = async () => { await net.enableVoice(); renderMulti(); };
+  $('m-voice').onclick = async () => { net.open = true; await net.enableVoice(); net.applyMic(); renderMulti(); };
   document.querySelectorAll('#multi [data-mteam]').forEach(b => b.onclick = () => { const t = b.dataset.mteam; settings.team = t; saveSettings(); net.setTeam(t, settings.vehicle[t]); renderMulti(); });
-  $('m-start').onclick = () => {
+  $('m-start').onclick = async () => {
     if (netMode === 'coop' && net.players.size < 1) { $('m-status').textContent = 'Attends que ton pote rejoigne la partie.'; return; }
+    if (netMode === 'coop') { net.open = true; if (!(await net.enableVoice())) { $('m-status').textContent = '🎙️ Le micro est obligatoire en coop : autorise-le puis réessaie.'; return; } }
     net.start({ mode: netMode, weather: settings.weather, time: settings.time, difficulty: settings.difficulty });
   };
   net.on('room', renderMulti); net.on('close', renderMulti);
@@ -197,7 +246,9 @@ function ui(game) {
   net.on('joined', () => { if (net.host) net.send({ t: 'mode', m: netMode }); });
   net.on('error', m => { $('m-status').textContent = m.msg; game.hud.toast(m.msg); });
   net.on('start', m => {
-    show('none');
+    if (m.mode === 'coop') { net.open = true; net.enableVoice(); }
+    show('none'); game.pendingStart = true; setTimeout(() => game.pendingStart = false, 4000);
+    game.hud.big('Départ…');
     if (m.difficulty) settings.difficulty = m.difficulty;
     const go = () => {
       if (m.mode === 'coop') game.start({ mode: 'coop', coop: 'online', mirror: !net.host, seed: m.seed, weather: m.weather, time: m.time, cineFirst: true });
@@ -212,7 +263,7 @@ function ui(game) {
 
   // retour à l'accueil quand le jeu revient au menu par le clavier
   setInterval(() => {
-    if (game.state === 'menu' && !document.querySelector('.screen.on')) show('home');
+    if (game.state === 'menu' && !document.querySelector('.screen.on') && !game.pendingStart) show('home');
     document.body.classList.toggle('online', !!net.connected && game.mode === 'online');
   }, 300);
 }

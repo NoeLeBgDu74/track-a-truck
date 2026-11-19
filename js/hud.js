@@ -14,6 +14,7 @@ export class HUD {
   setRole(team, mode) {
     document.body.dataset.team = team;
     $('h-role').textContent = mode === 'free' ? 'MODE LIBRE' : (team === 'truck' ? 'ÉQUIPE CAMION' : 'ÉQUIPE POLICE');
+    $('h-wanted').textContent = '';
     $('bust').style.display = mode === 'free' ? 'none' : '';
     $('h-timer').style.display = mode === 'free' ? 'none' : '';
     $('route').style.display = mode === 'free' ? 'none' : '';
@@ -77,6 +78,12 @@ export class HUD {
     }
     $('speedwrap').style.opacity = foot ? 0.25 : 1;
 
+    // niveau de recherche, cargaison, réseau
+    $('h-wanted').textContent = g.wanted ? '★'.repeat(g.wanted) + '☆'.repeat(5 - g.wanted) : '';
+    $('h-cargo').style.display = g.mission?.obj === 'fragile' ? 'block' : 'none';
+    if (g.mission?.obj === 'fragile') { const b = $('h-cargo').querySelector('b'); b.style.width = g.cargo + '%'; b.style.background = g.cargo > 60 ? '#ffd060' : g.cargo > 40 ? '#ff9a1a' : '#ff3b2f'; }
+    const net = g.net; $('h-net').style.display = net.connected ? 'block' : 'none';
+    if (net.connected) $('h-net').textContent = (net.ping != null ? '📶 ' + net.ping + ' ms' : '📶 en ligne') + (net.talkers?.size ? ' · 🎙️ ' + [...net.talkers].join(', ') : '') + (net.talking ? ' · 🎙️ toi' : '');
     // chrono
     if (g.mode !== 'free') {
       $('h-timer').textContent = fmtTime(g.timeLeft);

@@ -36,7 +36,7 @@ export class Net {
           if (this.conns.size >= 7) { try { c.send({ t: 'full' }); } catch (e) { } setTimeout(() => c.close(), 300); return; }
           this.conns.set(c.peer, c); this.connected = true;
         });
-        c.on('data', m => { if (!m || !m.t) return; m.from = c.peer; this.onMsg(m); if (m.t !== 'input' && m.t !== 'act') this.relay(m, c.peer); });
+        c.on('data', m => { if (!m || !m.t) return; m.from = c.peer; if (m.t === 'ping') { this.sendTo(c.peer, { t: 'pong', ts: m.ts }); return; } this.onMsg(m); if (m.t !== 'input' && m.t !== 'act') this.relay(m, c.peer); });
         c.on('close', () => this.drop(c.peer)); c.on('error', () => this.drop(c.peer));
       });
       this.peer.on('call', c => this.onCall(c));
@@ -52,7 +52,7 @@ export class Net {
       this.peer.on('open', id => {
         this.id = id;
         const c = this.peer.connect(ID_PREFIX + this.code, { reliable: true }); this.conn = c;
-        c.on('open', () => { clearTimeout(to); this.connected = true; this.send({ t: 'hello', ...this.me }); res(); this.emit('room'); });
+        c.on('open', () => { clearTimeout(to); this.connected = true; this.send({ t: 'hello', ...this.me }); res(); this.emit('room'); clearInterval(this.pingIv); this.pingIv = setInterval(() => this.send({ t: 'ping', ts: performance.now() }), 2000); });
         c.on('data', m => { if (m && m.t) this.onMsg(m); });
         c.on('close', () => { this.emit('error', { msg: '📴 La partie est terminée (le créateur est parti)' }); this.reset(); this.emit('close'); });
       });
@@ -75,6 +75,8 @@ export class Net {
         for (const p of m.list) if (p.id !== this.id) this.players.set(p.id, Object.assign(this.players.get(p.id) || {}, p));
         this.voiceSync(); this.emit('room'); break;
       case 'leave': this.drop(m.id, true); break;
+      case 'pong': this.ping = Math.round(performance.now() - m.ts); break;
+      case 'talk': { const p = this.players.get(m.from); (this.talkers ||= new Set()); if (p) { if (m.on) this.talkers.add(p.name); else this.talkers.delete(p.name); } break; }
       case 'full': this.emit('error', { msg: '🚫 Partie pleine' }); break;
       case 'state': { const p = this.players.get(m.from); if (p) { p.state = m.s; p.at = performance.now(); } break; }
       case 'S': for (const [id, s] of Object.entries(m.a || {})) { if (id === this.id) continue; const p = this.players.get(id); if (p) { p.state = s; p.at = performance.now(); } } break;
@@ -117,6 +119,15 @@ export class Net {
       this.applyMic(); this.voiceSync(); return true;
     } catch (e) { this.emit('error', { msg: '🎙️ Micro refusé : autorise le micro dans la barre d’adresse' }); return false; }
   }
+  analyser(stream) {
+    try { this.ac ||= new (window.AudioContext || window.webkitAudioContext)(); const a = this.ac.createAnalyser(); a.fftSize = 512; this.ac.createMediaStreamSource(stream).connect(a); return a; } catch (e) { return null; }
+  }
+  level(a) {
+    if (!a) return 0; const d = this._buf ||= new Uint8Array(512); a.getByteTimeDomainData(d);
+    let s = 0; for (let i = 0; i < d.length; i++) { const v = (d[i] - 128) / 128; s += v * v; } return Math.min(1, Math.sqrt(s / d.length) * 6);
+  }
+  myLevel() { return this.stream && (this.open || this.ptt) ? this.level(this.meA ||= this.analyser(this.stream)) : 0; }
+  peerLevel(id) { const c = this.calls.get(id); return c?.an ? this.level(c.an) : 0; }
   applyMic() { const on = !!(this.stream && (this.open || this.ptt)); if (this.stream) this.stream.getAudioTracks().forEach(t => t.enabled = on); if (this.talking !== on) { this.talking = on; this.send({ t: 'talk', on }); this.emit('talking', on); } }
   setPTT(on) { if (this.ptt === on) return; this.ptt = on; this.applyMic(); }
   voiceSync() {
@@ -127,12 +138,12 @@ export class Net {
   attachCall(id, call) {
     const old = this.calls.get(id); if (old && old.call !== call) try { old.call.close(); } catch (e) { }
     const v = { call, audio: null }; this.calls.set(id, v);
-    call.on('stream', s => { v.audio = document.createElement('audio'); v.audio.autoplay = true; v.audio.setAttribute('playsinline', ''); v.audio.style.display = 'none'; document.body.appendChild(v.audio); v.audio.srcObject = s; v.audio.play().catch(() => { }); });
+    call.on('stream', s => { v.an = this.analyser(s); this.ac?.resume?.(); v.audio = document.createElement('audio'); v.audio.autoplay = true; v.audio.setAttribute('playsinline', ''); v.audio.style.display = 'none'; document.body.appendChild(v.audio); v.audio.srcObject = s; v.audio.play().catch(() => { }); });
     const gone = () => { if (this.calls.get(id) === v) { v.audio?.remove(); this.calls.delete(id); } };
     call.on('close', gone); call.on('error', gone);
   }
   endCall(id) { const v = this.calls.get(id); if (!v) return; this.calls.delete(id); try { v.call.close(); } catch (e) { } v.audio?.remove(); }
 
-  reset() { this.connected = false; this.conn = null; this.conns.clear(); for (const id of [...this.calls.keys()]) this.endCall(id); this.players.clear(); this.host = false; this.code = null; }
+  reset() { clearInterval(this.pingIv); this.ping = null; this.talkers = new Set(); this.connected = false; this.conn = null; this.conns.clear(); for (const id of [...this.calls.keys()]) this.endCall(id); this.players.clear(); this.host = false; this.code = null; }
   leave() { if (this.peer) { try { this.peer.destroy(); } catch (e) { } } this.peer = null; this.reset(); this.emit('room'); }
 }

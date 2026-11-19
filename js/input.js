@@ -18,6 +18,7 @@ export class Input {
     cv.addEventListener('wheel', e => { this.mouse.wheel += Math.sign(e.deltaY); e.preventDefault(); }, { passive: false });
     cv.addEventListener('contextmenu', e => e.preventDefault());
     this.gpPrev = [];
+    this.touch = {};
   }
   down(...codes) { return codes.some(c => this.keys.has(c)); }
   hit(code) { return this.pressed.has(code); }
@@ -27,6 +28,7 @@ export class Input {
     let throttle = this.down('KeyW', 'ArrowUp') ? 1 : 0, brake = this.down('KeyS', 'ArrowDown') ? 1 : 0;
     let steer = (this.down('KeyA', 'ArrowLeft') ? 1 : 0) - (this.down('KeyD', 'ArrowRight') ? 1 : 0);
     let handbrake = this.down('Space');
+    const T = this.touch; if (T.gas) throttle = 1; if (T.brake) brake = 1; if (T.l) steer = 1; if (T.r) steer = -1; if (T.l && T.r) steer = 0; if (T.hand) handbrake = true;
     const gp = navigator.getGamepads ? [...navigator.getGamepads()].find(g => g) : null;
     if (gp) {
       const ax = gp.axes[0] || 0; if (Math.abs(ax) > 0.12) steer = -ax;

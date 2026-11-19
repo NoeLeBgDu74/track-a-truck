@@ -428,7 +428,9 @@ export function buildSeated(shirt = 0x3a5a8a, cap = 0xd8462b) {
   hb.box('body', 0x5a3a22, 0.2, 0.06, 0.04, 0, 0.04, 0.125); // moustache
   hb.box('body', 0x111111, 0.04, 0.035, 0.02, 0.06, 0.16, 0.128); hb.box('body', 0x111111, 0.04, 0.035, 0.02, -0.06, 0.16, 0.128);
   const head = hb.build(); head.position.set(0, 0.62, 0); g.add(head);
+  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.04, 0.02), new THREE.MeshStandardMaterial({ color: 0x3a0f0f, roughness: 0.8 }));
+  mouth.position.set(0, 0.075, 0.127); head.add(mouth);
   const arm = () => { const ab = new Builder(); ab.box('body', shirt, 0.12, 0.5, 0.13, 0, -0.22, 0, { r: 0.04 }); ab.box('body', 0xe0b090, 0.1, 0.1, 0.1, 0, -0.5, 0); const a = ab.build(); return a; };
   const armL = arm(), armR = arm(); armL.position.set(0.29, 0.56, 0); armR.position.set(-0.29, 0.56, 0); g.add(armL, armR);
-  return { group: g, head, armL, armR };
+  return { group: g, head, armL, armR, mouth };
 }

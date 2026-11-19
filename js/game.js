@@ -2,8 +2,9 @@
 import * as THREE from 'three';
 import {
   VEHICLES, TEAM_VEHICLES, PAINTS, settings, saveSettings, laneD, SHOULDER_D, roadToWorld, roadYaw, worldToRoad, DEST, DEST_S,
-  inTunnel, clamp, rng, fmtTime, REST_AREAS, EXIT_GAP, TUNNELS,
+  inTunnel, clamp, rng, fmtTime, REST_AREAS, EXIT_GAP, TUNNELS, MISSIONS, profile, saveProfile, D77, EXIT15,
 } from './config.js';
+import { Voice } from './voice.js';
 import { World } from './world.js';
 import { Vehicle } from './vehicle.js';
 import { Traffic } from './traffic.js';
@@ -15,7 +16,9 @@ import { Input } from './input.js';
 import { CameraRig, CAM_NAMES } from './camera.js';
 import { HUD } from './hud.js';
 import { Net, QUICK_CHAT } from './net.js';
-import { Coop, ACTIONS } from './coop.js';
+import { Coop, ACTIONS, GAGS } from './coop.js';
+import { Mini } from './minigame.js';
+import { Listener, understand } from './speech.js';
 import { Cinematic, storyShots } from './cine.js';
 import { Showroom } from './showroom.js';
 import { buildPoliceCar, buildPlayerTruck, buildTrailer, makeWheel, buildPerson, buildSeated, initMaterials, MAT } from './models.js';
@@ -43,7 +46,8 @@ export class Game {
     this.vehicles = []; this.police = []; this.fugitives = []; this.spikes = []; this.bananas = []; this.remotes = new Map();
     this.player = null; this.person = null; this.state = 'menu'; this.mode = 'chase'; this.team = settings.team;
     this.time = 0; this.acc = 0; this.menuS = 120; this.bust = 0; this.stats = { crashes: 0, topSpeed: 0, dist: 0 };
-    this.mirror = false; this.coop = null; this.confuseT = 0; this.said = {};
+    this.mirror = false; this.coop = null; this.confuseT = 0; this.said = {}; this.heat = 0; this.slow = 0; this.slowCd = 0; this.cartons = []; this.cheeses = [];
+    this.heli = this.buildHeli();
     this.lightsSetup();
     this.applyQuality();
     this.env.setTime(settings.time); this.env.setWeather(settings.weather);
@@ -88,21 +92,26 @@ export class Game {
     for (const v of this.vehicles) v.dispose();
     this.vehicles = []; this.police = []; this.fugitives = []; this.spikes.forEach(s => this.scene.remove(s.mesh)); this.spikes = [];
     this.bananas.forEach(b => this.scene.remove(b.mesh)); this.bananas = [];
+    this.cartons?.forEach(c => { this.scene.remove(c.mesh); this.phys.removeRigidBody(c.body); }); this.cartons = [];
+    if (this.heli) { this.heli.visible = false; this.heliOn = false; this.heliSpot.intensity = 0; } this.audio.rotor?.(0); this.slow = 0; document.body.classList.remove('slowmo'); this.allies = []; this.mission = null; Voice.stop();
     if (this.person) this.leaveFoot(true);
     this.player = null; this.bust = 0; this.audio.stopAllSirens?.(); this.audio.music?.('off'); this.audio.buzz?.(false);
     if (this.preview) { this.scene.remove(this.preview); this.preview = null; }
     this.coop = null; this.coopAI = null; this.crew = null; this.crewV = null; this.mirror = false; this.guardSent = false; this.confuseT = 0; this.said = {}; this.score = 0; this.combo = 0;
     this.cine.on && this.cine.finish();
+    this.listen?.stop(); this.crewAnim = [null, null]; this.noHands = 0; this.aiCmd = null;
     document.body.classList.remove('coop');
     this.hud.unhook?.();
   }
 
   start(cfg) {
+    document.querySelectorAll('.screen.on').forEach(e => e.classList.remove('on')); // aucun menu ne reste affiché (bug multi)
     this.audio.init();
     this.clearMatch();
     Object.assign(this, { mode: cfg.mode, team: cfg.mode === 'coop' ? 'truck' : cfg.team });
-    const diff = this.diff = DIFF[settings.difficulty] || DIFF.normal;
-    this.env.setTime(cfg.time || settings.time); this.env.setWeather(cfg.weather || settings.weather);
+    const M = this.mission = cfg.mission ? MISSIONS.find(m => m.id === cfg.mission) : null;
+    const diff = this.diff = DIFF[M ? M.diff : settings.difficulty] || DIFF.normal;
+    this.env.setTime(M ? M.time : (cfg.time || settings.time)); this.env.setWeather(M ? M.weather : (cfg.weather || settings.weather));
     this.seed = cfg.seed ?? (Math.random() * 1e6 | 0);
     const r = rng(this.seed);
     const works = [];
@@ -114,9 +123,10 @@ export class Game {
     for (const k of [...this.world.chunks.keys()]) this.world.unload(k);
     this.world.setRoadworks(works);
     this.lastCfg = cfg;
-    this.time = 0; this.timeLeft = diff.time + (cfg.mode === 'coop' ? 120 : 0); this.headStart = this.team === 'truck' ? 15 : 10; this.released = false;
+    this.time = 0; this.timeLeft = (M?.limit ?? diff.time) + (cfg.mode === 'coop' ? 120 : 0); this.timeTotal = this.timeLeft;
+    this.heat = (M?.heat || 0) * 20; this.cargo = 100; this.allies = []; this.playerArrived = false; this.nextBlock = 75; this.heliOn = false; this.heliT = 0; this.headStart = this.team === 'truck' ? 15 : 10; this.released = false;
     this.stats = { crashes: 0, topSpeed: 0, dist: 0, start: 0, busts: 0 };
-    this.nextReinforce = 55; this.blockDone = !diff.block; this.ended = false; this.radioT = 18; this.tacticT = 0;
+    this.nextReinforce = 55; this.blockDone = !diff.block && !(M?.heat >= 3); this.ended = false; this.radioT = 18; this.tacticT = 0;
     this.unitN = 1; this.score = 0; this.combo = 0; this.comboT = 0;
 
     if (cfg.mirror) return this.startMirror(cfg);
@@ -145,6 +155,12 @@ export class Game {
         this.addPolice(-120, laneD(1, 0), 'idle');
       }
     }
+    if (M?.obj === 'convoy') {
+      for (const [id, ds] of [['flatbed', -34], ['delivery', -62]]) {
+        const v = this.addVehicle(id, ps + ds, laneD(1, 1), { ai: true, name: id === 'flatbed' ? 'Plateau de Dédé' : 'Porteur de Jojo' });
+        const ai = new AIDriver(this, v, 'flee'); ai.lane = 1; ai.useBis = false; this.allies.push({ v, ai, status: 'run', bust: 0 });
+      }
+    }
     if (cfg.mode === 'coop') {
       const local = cfg.coop || 'solo';
       const names = local === 'online' ? [this.net.me.name, ([...this.net.players.values()][0]?.name) || 'Gégé'] : ['Marcel', 'Gégé'];
@@ -153,6 +169,7 @@ export class Game {
       this.coopAI = new AIDriver(this, this.player, 'flee');
       this.makeCrew(this.player);
       document.body.classList.add('coop');
+      this.startVoiceChat();
       if (local === 'online') this.hookNetHud();
     }
     this.traffic.populate(ps + 200);
@@ -202,8 +219,8 @@ export class Game {
     return ai;
   }
 
-  radio(text, kind = '') { this.hud.msg('📻 ' + text, kind); this.audio.radio?.(); }
-  coopMsg(text, kind = '') { this.hud.msg(text, kind); }
+  radio(text, kind = '') { this.hud.msg('📻 ' + text, kind); this.audio.radio?.(); if (kind === 'pol') Voice.say(text, { pitch: 0.75, rate: 1.18, voice: 1 }); }
+  coopMsg(text, kind = '') { this.hud.msg(text, kind); if (/«|»|:/.test(text)) Voice.say(text.replace(/^.*?(«|:)/, ''), { pitch: 1.15, rate: 1.15, voice: 0 }); }
 
   setState(s) {
     this.state = s;
@@ -214,6 +231,8 @@ export class Game {
   // ---------- boucle ----------
   frame(dt) {
     dt = Math.min(dt, 0.1);
+    this.slowCd = Math.max(0, this.slowCd - dt);
+    if (this.slow > 0) { this.slow -= dt; dt *= 0.3; if (this.slow <= 0) document.body.classList.remove('slowmo'); }
     const inp = this.input;
     if ((inp.hit('Escape') || inp.hit('KeyP')) && !this.cine.on) {
       if (this.state === 'play' || this.state === 'countdown') { this.prevState = this.state; this.setState('pause'); }
@@ -221,7 +240,7 @@ export class Game {
     }
     // radio CB : V pour parler
     if (this.net.stream) this.net.setPTT(inp.down('KeyV'));
-    if (this.mirror) { this.renderScene = null; return this.mirrorFrame(dt); }
+    if (this.mirror) { this.renderScene = null; this.renderCamera = null; return this.mirrorFrame(dt); }
     if (this.state === 'menu') { // écran d'accueil : salle d'exposition dédiée (pas la partie)
       this.time += dt; this.showroom.update(dt);
       this.renderScene = this.showroom.scene; this.renderCamera = this.showroom.camera;
@@ -253,13 +272,19 @@ export class Game {
 
     // caméra
     if (this.cine.on) this.cine.update(dt, inp);
+    else if (this.slow > 0 && this.player) {
+      const v = this.player, a = this.slowA + (2.4 - this.slow) * 0.5, c = v.trailer ? v.trailer.pos.clone().lerp(v.pos, 0.6) : v.pos;
+      this.camera.position.set(c.x + Math.sin(a) * 16, c.y + 6 + (2.4 - this.slow) * 2, c.z + Math.cos(a) * 16); this.camera.lookAt(c.x, c.y + 1.5, c.z);
+      this.camera.fov = 45; this.camera.updateProjectionMatrix();
+    }
     else if (this.state === 'menu') this.menuCam(dt);
     else if (this.state === 'garage') this.garageCam(dt);
     else {
       const copCam = this.coop && this.player && this.coopMyRole() === 'cop' && ['play', 'countdown', 'end'].includes(this.state);
       if (copCam) {
-        this.camRig.updateCopilot(dt, this.player, inp);
-        if (inp.mouse.clicked && !document.pointerLockElement) $('c').requestPointerLock?.();
+        this.camRig.updateCopilot(dt, this.player, inp, this.coop.roof);
+        if (this.coop.roof && inp.mouse.clicked && document.pointerLockElement) this.coopAct('throw');
+        if (inp.mouse.clicked && !document.pointerLockElement) { try { const r = $('c').requestPointerLock?.(); r?.catch?.(() => { }); } catch (e) { } }
       } else {
         if (document.pointerLockElement && this.coop) document.exitPointerLock?.();
         if (inp.hit('KeyC') && this.player && !this.person) this.hud.toast(CAM_NAMES[this.camRig.cycle()]);
@@ -306,6 +331,56 @@ export class Game {
   }
 
 
+  // ---------- voix dans la cabine : micro ouvert obligatoire + compréhension de la parole ----------
+  myIdx() { return this.mirror ? 1 : 0; }
+  async startVoiceChat() {
+    this.crewAnim = [null, null];
+    const n = this.net; n.open = true;
+    const ok = await n.enableVoice();
+    if (!ok) this.hud.msg('🎙️ <b>Micro obligatoire</b> pour parler dans la cabine : autorise le micro (icône 🔒 de la barre d’adresse) puis relance.', 'red');
+    else { n.applyMic(); n.voiceSync(); if (this.coopKind === 'online') this.hud.toast('🎙️ Micro ouvert : vous vous entendez dans la cabine'); }
+    this.listen = new Listener(t => this.handleSpeech(this.coopKind === 'local' ? this.coop?.driver ?? 0 : this.myIdx(), t, true));
+    if (this.listen.ok) { this.listen.start(); this.hud.msg('🗣️ Commandes vocales actives : dis « sans les mains », « attention », « klaxonne », « un sandwich », « relais », « à gauche »… ton routier réagit.'); }
+  }
+  handleSpeech(idx, text, local) {
+    const c = this.coop; if (!c || !text) return;
+    const intents = understand(text), me = c.chars[idx], other = c.chars[1 - idx], drv = idx === c.driver;
+    this.hud.msg(`🗣️ <b>${me.name}</b> : « ${text} »`, 'speech');
+    if (local && this.coopKind === 'online') this.net.send({ t: 'speech', idx, text });
+    const anim = (i, type, dur = 2.5) => this.crewAnim[i] = { type, t: 0, dur };
+    const reply = (line) => { if (!c.humans[1 - idx] || this.coopKind === 'local') this.coopMsg(`${other.name} : « ${line} »`); };
+    const act = (id) => { if (!this.mirror) c.action(id, 'voice'); };
+    if (!intents.length) { anim(1 - idx, 'shrug', 1.6); if (Math.random() < 0.35) reply(['Hein ? J’ai rien compris.', 'Quoi ? Répète, y a le moteur.', 'Ouais… ouais… si tu le dis.', 'C’est toi qui vois.'][Math.floor(Math.random() * 4)]); return; }
+    const i0 = intents[0];
+    for (const it of intents.slice(0, 2)) switch (it) {
+      case 'nohands': anim(idx, 'nohands', 3); if (drv && !this.mirror) this.noHands = 3; reply(drv ? 'NON MAIS T’ES MALADE ?! REPRENDS LE VOLANT !' : 'Bravo… et moi je fais quoi, j’applaudis ?'); if (drv) anim(1 - idx, 'scared', 3); break;
+      case 'scared': anim(0, 'scared', 2.2); anim(1, 'scared', 2.2); if (!this.mirror && !c.humans[c.driver]) this.aiCmd = { brake: 1.8 }; if (i0 === it) reply(['AAAAH !', 'QUOI ?! OÙ ÇA ?!', 'Je freine, je freine !'][Math.floor(Math.random() * 3)]); break;
+      case 'faster': anim(idx, 'point', 1.5); if (!this.mirror && !c.humans[c.driver]) this.aiCmd = { faster: 6 }; reply('Accroche-toi à ton sandwich !'); break;
+      case 'slower': if (!this.mirror && !c.humans[c.driver]) this.aiCmd = { slower: 6 }; reply('Ok, ok, je lève le pied.'); break;
+      case 'left': case 'right': anim(idx, it === 'left' ? 'pointL' : 'pointR', 1.8); if (!this.mirror && !c.humans[c.driver] && this.coopAI) { this.coopAI.lane = Math.max(0, Math.min(3, this.coopAI.lane + (it === 'left' ? -1 : 1))); this.coopAI.laneT = 4; } break;
+      case 'horn': if (!this.mirror && this.player) { this.player.hornStuck = 1; setTimeout(() => this.player && (this.player.hornStuck = c.gag?.id === 'horn' ? 1 : 0), 600); } anim(c.driver, 'thumbs', 1); break;
+      case 'radio': act('radio'); anim(idx, 'dance', 3); break;
+      case 'sing': anim(idx, 'dance', 4); this.audio.sing?.(); me.moral = Math.min(100, me.moral + 10); break;
+      case 'dance': anim(0, 'dance', 4); anim(1, 'dance', 4); break;
+      case 'eat': act('sandwich'); anim(1 - idx, 'thumbs', 1.5); break;
+      case 'coffee': act('coffee'); break;
+      case 'wake': act('slap'); break;
+      case 'banana': act(c.roof ? 'throw' : 'banana'); anim(1 - c.driver, 'throw', 1.2); break;
+      case 'swap': act('swap'); break;
+      case 'lights': if (!this.mirror && this.player) this.player.headlights = !this.player.headlights; break;
+      case 'wipers': if (!this.mirror && this.player) this.player.wiping = !this.player.wiping; break;
+      case 'hello': anim(idx, 'wave', 2); anim(1 - idx, 'wave', 2); reply(['Salut l’ami !', 'Yo !', 'Bien le bonjour !'][Math.floor(Math.random() * 3)]); break;
+      case 'thanks': anim(1 - idx, 'thumbs', 2); reply('Merci ! On forme une sacrée équipe.'); other.moral = Math.min(100, other.moral + 8); break;
+      case 'insult': anim(1 - idx, 'offended', 3); reply(['Pardon ?! Je te signale que c’est moi qui ai les sandwichs.', 'Je boude. Officiellement.', 'Répète un peu pour voir ?'][Math.floor(Math.random() * 3)]); other.moral = Math.max(0, other.moral - 10); break;
+      case 'police': anim(0, 'lookback', 2); anim(1, 'lookback', 2); reply(this.nearestPolice(this.player.curPos).d < 200 ? 'Ils sont juste derrière ! Fonce !' : 'Je les vois pas… pour l’instant.'); break;
+      case 'look': anim(1 - idx, 'lookL', 2); reply('Où ça ? Ah ouais, joli.'); break;
+      case 'laugh': anim(0, 'laugh', 2); anim(1, 'laugh', 2); break;
+      case 'cheese': reply('Le fromage va bien. Il sent toujours autant.'); break;
+      case 'where': { const left = Math.max(0, DEST_S - this.player.road.s); reply(left > 50 ? `Encore ${(left / 1000).toFixed(1)} kilomètres, et il nous reste ${fmtTime(this.timeLeft)}.` : 'On y est presque !'); break; }
+      case 'sleep': anim(idx, 'sleep', 3); reply(drv ? 'TU DORS PAS AU VOLANT !' : 'Fais de beaux rêves…'); break;
+    }
+  }
+
   // ---------- équipage visible dans la cabine (coop) ----------
   makeCrew(v) {
     if (!v) return;
@@ -346,6 +421,36 @@ export class Game {
         if (c.prep) { L.x = -1.3 + Math.sin(t * 8) * 0.3; R.x = -1.1 + Math.cos(t * 7) * 0.3; H.x = 0.4; }
         if (c.drv.asleep > 0) { R.x = -1.5; R.z = -1.2 + Math.sin(t * 15) * 0.4; H.y = 0.8; }
       }
+      // réactions déclenchées par la voix
+      const A = this.crewAnim?.[i];
+      if (A) {
+        A.t += dt; const k = A.t;
+        switch (A.type) {
+          case 'nohands': L.x = R.x = -2.95; L.z = 0.35; R.z = -0.35; H.x = -0.25; break;
+          case 'scared': L.x = R.x = -2.5; L.z = 0.7; R.z = -0.7; H.x = -0.3; m.group.position.x += Math.sin(t * 40) * 0.015; break;
+          case 'wave': R.x = -2.8; R.z = -0.3 + Math.sin(t * 12) * 0.5; break;
+          case 'thumbs': R.x = -1.7; R.z = -0.2; H.x = 0.1; break;
+          case 'dance': L.x = -1.5 + Math.sin(t * 9) * 1.2; R.x = -1.5 - Math.sin(t * 9) * 1.2; H.z = Math.sin(t * 9) * 0.3; m.group.position.y += Math.abs(Math.sin(t * 9)) * 0.04; break;
+          case 'pointL': L.x = -1.5; L.z = 1.3; H.y = 0.6; break;
+          case 'pointR': R.x = -1.5; R.z = -1.3; H.y = -0.6; break;
+          case 'point': R.x = -1.6; H.x = -0.1; break;
+          case 'shrug': L.x = R.x = -0.6; L.z = 0.8; R.z = -0.8; H.z = 0.2; break;
+          case 'laugh': H.x = -0.3 + Math.sin(t * 20) * 0.15; break;
+          case 'lookback': H.y = isDrv ? 1.3 : -1.6; break;
+          case 'lookL': H.y = 0.9; break;
+          case 'offended': H.y = (m.seatX > 0 ? 1 : -1) * 0.9; L.x = R.x = -1.3; L.z = -0.6; R.z = 0.6; break;
+          case 'throw': R.x = -2.8 + Math.min(1, k * 3) * 1.8; break;
+          case 'sleep': H.x = 0.7; break;
+        }
+        if (A.t > A.dur) this.crewAnim[i] = null;
+      }
+      // la bouche bouge quand le joueur parle (micro) ou quand l'IA parle
+      let lv = 0;
+      if (this.coopKind === 'online') lv = i === this.myIdx() ? this.net.myLevel() : Math.max(0, ...[...this.net.calls.keys()].map(id => this.net.peerLevel(id)));
+      else if (i === 0 || this.coopKind === 'local') lv = this.net.myLevel() * (this.coopKind === 'local' ? (isDrv ? 1 : 0) : 1);
+      if (!c.humans[i] && window.speechSynthesis?.speaking) lv = 0.5 + Math.sin(t * 22) * 0.5;
+      m.mouthLv = Math.max(lv, (m.mouthLv || 0) * 0.8);
+      if (m.mouth) m.mouth.scale.y = 0.6 + m.mouthLv * 4 * (0.6 + Math.abs(Math.sin(t * 17)) * 0.4);
       // ne pas voir l'intérieur de sa propre tête
       const mine = (copCam && !isDrv && (myRole === 'cop')) || (cockpit && isDrv && myRole !== 'cop');
       m.head.visible = !mine;
@@ -396,6 +501,7 @@ export class Game {
     this.confuseT = Math.max(0, this.confuseT - dt);
     for (const p of this.police) if (p.ai) { p.ai.target = this.targetTruck(); p.ai.update(dt); }
     for (const f of this.fugitives) { if (this.state !== 'play') f.v.input = { throttle: 0, brake: 0, steer: 0, handbrake: true }; else f.update(dt); }
+    for (const a of this.allies) { if (this.state !== 'play' || a.status !== 'run') { a.v.input = { throttle: 0, brake: a.v.kmh > 2 ? 1 : 0, steer: 0, handbrake: true }; } else a.ai.update(dt); }
 
     const env = { wet: this.env.wet };
     for (const v of this.vehicles) v.step(dt, env);
@@ -418,6 +524,7 @@ export class Game {
         for (let i = 0; i < Math.min(14, v.impact * 2); i++) this.particles.emit(v.curPos.x + (Math.random() - 0.5) * 2, v.curPos.y + 0.5, v.curPos.z + (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 8, Math.random() * 5, (Math.random() - 0.5) * 8, 0.4, 0.12, 0, 0xffb040, 1);
       }
       this.vehicleFx(v, dt);
+      if (v.impact > 2 && this.state === 'play') this.onImpact(v);
     }
     for (const sp of this.spikes) for (const v of this.vehicles) {
       if (v.team !== 'truck' || v.spikes > 0) continue;
@@ -427,7 +534,7 @@ export class Game {
         else this.radio('Le suspect a roulé sur la herse !', 'pol');
       }
     }
-    this.bananaStep(dt);
+    this.bananaStep(dt); this.propsStep(dt); this.heliStep(dt);
     if (this.coop && (this.state === 'play')) this.coop.update(dt, pl);
     if (this.state === 'play') { this.rules(dt); this.nearMiss(dt); }
     if (pl) this.stats.topSpeed = Math.max(this.stats.topSpeed, pl.kmh);
@@ -449,6 +556,10 @@ export class Game {
     if (this.coopKind === 'solo' && c.driver === 1) { this.coopAI.update(dt); base = { ...pl.input }; }
     else if (this.coopKind === 'online' && c.driver === 1) base = this.remoteInput || { throttle: 0, brake: 0, steer: 0, handbrake: false };
     else base = this.input.drive();
+    if (this.aiCmd && this.coopKind === 'solo' && c.driver === 1) {
+      const a = this.aiCmd; if (a.brake > 0) { base.throttle = 0; base.brake = 1; a.brake -= dt; } else if (a.faster > 0) { base.throttle = 1; base.brake = 0; a.faster -= dt; } else if (a.slower > 0) { base.throttle = Math.min(base.throttle, 0.2); a.slower -= dt; } else this.aiCmd = null;
+    }
+    if (this.noHands > 0) { this.noHands -= dt; base.steer = Math.sin(this.time * 0.9) * 0.12; }
     const o = c.modify(base, dt, this.time);
     if (c.fuel <= 0) { // le copilote pousse le camion…
       o.throttle = 0;
@@ -456,14 +567,32 @@ export class Game {
     }
     return o;
   }
+  coopPad() {
+    const pads = navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : [];
+    const gp = pads[1] || (this.coopMyRole() === 'cop' ? pads[0] : null); if (!gp) return;
+    const map = { 0: 'sandwich', 1: 'coffee', 2: 'slap', 3: 'radio', 4: 'banana', 5: 'cb', 8: 'swap', 9: 'roof' };
+    this.padPrev ||= [];
+    gp.buttons.forEach((b, i) => { if (b.pressed && !this.padPrev[i]) { if (Mini.on) Mini.pad(); else if (map[i]) this.coopAct(map[i]); } });
+    this.padPrev = gp.buttons.map(b => b.pressed);
+  }
   coopKeys() {
     const inp = this.input, role = this.coopMyRole();
+    this.coopPad();
+    if (Mini.on) { if (inp.hit('Space') || inp.hit('Enter') || ACTIONS.some(a => inp.hit('Digit' + a.k))) Mini.pad(); return; }
     if (inp.hit('Tab')) this.coopAct('swap');
     if (role === 'drv' && this.coopKind === 'online') return; // en ligne, seul le copilote gère la cabine
     ACTIONS.forEach(a => { if (inp.hit('Digit' + a.k) || inp.hit('Numpad' + a.k)) this.coopAct(a.id); });
   }
-  coopAct(id) {
+  coopAct(id, skipMini) {
     if (!this.coop) return;
+    // mini-jeu pour le copilote humain local (pas pour l'IA)
+    const role = this.coopMyRole(), c = this.coop;
+    if (!skipMini && (role === 'cop' || role === 'both') && !Mini.on) {
+      let type = null;
+      if (id === 'slap') type = (c.drv.asleep > 0 || c.drv.micro > 0) ? 'mash' : (c.gag && GAGS[c.gag.id]?.fix === 'slap' ? (GAGS[c.gag.id].game || 'mash') : null);
+      if (id === 'sandwich' && c.sandwiches > 0 && !c.prep) type = 'sandwich';
+      if (type) { Mini.play(type, () => this.coopAct(id, true), () => this.hud.toast('Raté ! Réessaie (touche ' + (id === 'slap' ? '3' : '1') + ')')); return; }
+    }
     if (this.mirror) { this.net.send({ t: 'act', a: id }); return; }
     if (this.state !== 'play') return;
     this.coop.action(id);
@@ -544,10 +673,19 @@ export class Game {
     const canDrive = !this.coop || this.coopMyRole() !== 'cop' || this.coopKind === 'local';
     if (canDrive) {
       if (inp.hit('KeyL')) { v.headlights = !v.headlights; this.hud.toast(v.headlights ? 'Phares allumés' : 'Phares éteints'); }
-      if (inp.hit('KeyE') && v.isPolice) { v.siren = !v.siren; this.hud.toast(v.siren ? 'Gyrophares + sirène' : 'Sirène coupée'); }
+      if (inp.hit('KeyG') && v.isPolice) { v.siren = !v.siren; this.hud.toast(v.siren ? 'Gyrophares + sirène' : 'Sirène coupée'); }
+      if (inp.hit('KeyQ')) { v.blink = v.blink === 1 ? 0 : 1; v.blinkT = 0; }
+      if (inp.hit('KeyE')) { if (v.isPolice && !this.blinkHint) { this.blinkHint = 1; this.hud.toast('Sirène : touche G (E = clignotant droit)'); } v.blink = v.blink === 2 ? 0 : 2; v.blinkT = 0; }
+      if (inp.hit('KeyN')) v.blink = v.blink === 3 ? 0 : 3;
+      if (v.blink && v.blink !== 3) { v.blinkT += DT; if (Math.abs(v.steer) > 0.08) v.blinkSteered = true; if ((v.blinkSteered && Math.abs(v.steer) < 0.02) || v.blinkT > 12) { v.blink = 0; v.blinkSteered = false; } }
+      if (v.blink) { const ph = (performance.now() % 760) < 380; if (ph !== this._bph) { this._bph = ph; this.audio.tick?.(); } }
+      if (v.manual) {
+        if (inp.hit('ShiftLeft') || inp.hit('ShiftRight')) { v.mGear = Math.min(v.def.gears, v.mGear + 1); this.hud.toast('Rapport ' + v.mGear); }
+        if (inp.hit('ControlLeft') || inp.hit('ControlRight')) { v.mGear = Math.max(1, v.mGear - 1); this.hud.toast('Rapport ' + v.mGear); }
+      }
       if (inp.hit('KeyB')) { v.wiping = !v.wiping; this.hud.toast(v.wiping ? 'Essuie-glaces' : 'Essuie-glaces arrêtés'); }
       if (!this.net.stream && inp.hit('KeyV')) { v.wiping = !v.wiping; this.hud.toast(v.wiping ? 'Essuie-glaces' : 'Essuie-glaces arrêtés'); }
-      v.horn = inp.down('KeyH');
+      v.horn = inp.down('KeyH') || v.hornStuck > 0;
       if (inp.hit('KeyR')) this.respawn(v);
       if (inp.hit('KeyF') && v.kmh < 8 && !this.coop) this.enterFoot(v);
     }
@@ -562,6 +700,62 @@ export class Game {
     const lane = clamp(Math.round((Math.abs(v.road.d) - 3) / 3.6), 0, 2);
     v.resetOnRoad(v.road.s, laneD(1, lane));
     if (this.mode === 'chase' || this.mode === 'coop') { this.timeLeft -= 5; this.hud.toast('Repositionnement (−5 s)'); }
+  }
+
+  // ---------- hélicoptère de la gendarmerie ----------
+  buildHeli() {
+    const g = new THREE.Group(), white = new THREE.MeshStandardMaterial({ color: 0x1d2c4a, roughness: 0.4, metalness: 0.3 }), dark = new THREE.MeshStandardMaterial({ color: 0x111111 });
+    const body = new THREE.Mesh(new THREE.SphereGeometry(1.6, 16, 12), white); body.scale.set(1, 0.9, 1.6); g.add(body);
+    const glass = new THREE.Mesh(new THREE.SphereGeometry(1.2, 14, 10), MAT.glass); glass.position.set(0, 0.3, 1.5); glass.scale.set(1, 0.8, 0.9); g.add(glass);
+    const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.18, 6, 10), white); boom.rotation.x = Math.PI / 2; boom.position.set(0, 0.3, -4.2); g.add(boom);
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.6, 0.9), white); fin.position.set(0, 1, -7); g.add(fin);
+    for (const sx of [-1, 1]) { const sk = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 4, 6), dark); sk.rotation.x = Math.PI / 2; sk.position.set(sx * 1.1, -1.6, 0); g.add(sk); }
+    this.heliRotor = new THREE.Group(); this.heliRotor.position.y = 1.7; g.add(this.heliRotor);
+    for (let i = 0; i < 4; i++) { const bl = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.05, 11), dark); bl.rotation.y = i * Math.PI / 2; this.heliRotor.add(bl); }
+    this.heliTail = new THREE.Group(); this.heliTail.position.set(0.25, 1, -7); g.add(this.heliTail);
+    for (let i = 0; i < 2; i++) { const bl = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.8, 0.2), dark); bl.rotation.x = i * Math.PI / 2; this.heliTail.add(bl); }
+    const beam = new THREE.Mesh(new THREE.ConeGeometry(7, 60, 24, 1, true), new THREE.MeshBasicMaterial({ color: 0xfff6d8, transparent: true, opacity: 0.03, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    beam.position.y = -30; this.heliBeam = new THREE.Group(); this.heliBeam.position.set(0, -1.3, 1.8); this.heliBeam.add(beam); g.add(this.heliBeam);
+    this.heliSpot = new THREE.SpotLight(0xfff2d8, 0, 160, 0.13, 0.5, 1.2); this.heliSpot.position.set(0, -1.4, 1.8); g.add(this.heliSpot); this.scene.add(this.heliSpot.target);
+    g.visible = false; this.scene.add(g);
+    return g;
+  }
+  heliStep(dt) {
+    const h = this.heli, truck = this.targetTruck();
+    if (!this.heliOn || !truck || !h.visible) { this.heliSpot.intensity = 0; return; }
+    this.heliT += dt;
+    const f = truck.forward, want = new THREE.Vector3(truck.curPos.x - f.x * 35 + Math.sin(this.heliT * 0.3) * 20, 42 + Math.sin(this.heliT * 0.5) * 4, truck.curPos.z - f.z * 35 + Math.cos(this.heliT * 0.3) * 10);
+    h.position.lerp(want, Math.min(1, dt * 0.6));
+    h.lookAt(truck.curPos.x, h.position.y - 8, truck.curPos.z);
+    this.heliRotor.rotation.y += dt * 40; this.heliTail.rotation.x += dt * 60;
+    const night = this.env.night > 0.4 || this.env.fogAmt > 0.5 || this.env.rainAmt > 0.5;
+    this.heliSpot.target.position.copy(truck.curPos); this.heliSpot.intensity = night ? 3500 : 0;
+    this.heliBeam.visible = night; this.heliBeam.lookAt(truck.curPos); this.heliBeam.rotateX(-Math.PI / 2);
+    this.audio.rotor?.(Math.max(0, 0.5 - h.position.distanceTo(this.camera.position) / 400));
+    if (this.heliT > 3 && this.heliT < 3.1) this.radio('Hélicoptère Dragon 74 en position, je l’ai dans le projecteur !', 'pol');
+  }
+  // objets lancés : cartons (copilote sur la remorque) et meules de fromage (portes ouvertes)
+  spawnProp(kind, pos, vel) {
+    const R = this.R, isCheese = kind === 'cheese';
+    const body = this.phys.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z).setLinvel(vel.x, vel.y, vel.z).setAngvel({ x: Math.random() * 4, y: Math.random() * 4, z: Math.random() * 4 }).setCcdEnabled(true));
+    this.phys.createCollider(isCheese ? R.ColliderDesc.cylinder(0.18, 0.45).setDensity(250).setFriction(0.4) : R.ColliderDesc.cuboid(0.3, 0.25, 0.3).setDensity(90).setFriction(0.6), body);
+    const mesh = new THREE.Mesh(isCheese ? new THREE.CylinderGeometry(0.45, 0.45, 0.36, 18) : new THREE.BoxGeometry(0.6, 0.5, 0.6), isCheese ? (this._cheeseMat ||= new THREE.MeshStandardMaterial({ color: 0xf0c040, roughness: 0.6 })) : (this._boxMat ||= new THREE.MeshStandardMaterial({ color: 0xa8814f, roughness: 0.9 })));
+    mesh.castShadow = true; this.scene.add(mesh);
+    this.cartons.push({ body, mesh, t: 0, kind });
+  }
+  propsStep(dt) {
+    for (const c of this.cartons) {
+      c.t += dt; const p = c.body.translation(), q = c.body.rotation();
+      c.mesh.position.set(p.x, p.y, p.z); c.mesh.quaternion.set(q.x, q.y, q.z, q.w);
+      for (const v of this.vehicles) if (v.isPolice && !v.oil && v.curPos.distanceToSquared(c.mesh.position) < 6) { v.oil = c.kind === 'cheese' ? 2 : 0.8; this.say('prop' + v.unit, c.kind === 'cheese' ? `${v.name} : « Des MEULES DE FROMAGE sur la chaussée ?! »` : `${v.name} : « Il nous balance des cartons ! »`, 6); }
+      if (c.t > 40 || p.y < -5) c.dead = true;
+    }
+    this.cartons = this.cartons.filter(c => { if (c.dead) { this.scene.remove(c.mesh); this.phys.removeRigidBody(c.body); } return !c.dead; });
+    // étincelles des jantes à nu
+    for (const v of this.vehicles) if (v.flat && v.kmh > 15 && Math.random() < 0.7) {
+      const w = v.wheelDefs[2 + (Math.random() * 2 | 0)] || v.wheelDefs[0], p = _v.set(w.x, -v.bodyY + 0.05, w.z).applyQuaternion(v.curQuat).add(v.curPos);
+      this.particles.emit(p.x, 0.1, p.z, (Math.random() - 0.5) * 4 - v.lastV.x * 0.2, Math.random() * 2, (Math.random() - 0.5) * 4 - v.lastV.z * 0.2, 0.25, 0.08, 0, 0xffc040, 1);
+    }
   }
 
   // ---------- frôlements (score de style) ----------
@@ -631,18 +825,23 @@ export class Game {
       this.released = true;
       for (const p of this.police) if (p.ai) { p.ai.role = 'chase'; p.v.siren = true; }
       if (this.team === 'truck') this.radio('Central : toutes les unités, poursuite engagée ! Sirènes activées.', 'pol');
-      else { this.radio('Central : feu vert, poursuite autorisée ! (E : sirène)', 'pol'); pl.siren = true; }
+      else { this.radio('Central : feu vert, poursuite autorisée ! (G : sirène)', 'pol'); pl.siren = true; }
     }
+    // niveau de recherche (1 à 5 étoiles)
+    if (this.released) this.heat = Math.min(100, this.heat + dt * 0.18);
+    const lvl = this.wanted = this.team === 'truck' ? Math.min(5, 1 + Math.floor(this.heat / 20)) : 0;
+    if (lvl !== this.lastLvl) { if (this.lastLvl && lvl > this.lastLvl) { this.hud.big('★'.repeat(lvl), 'wanted'); this.radio(['', '', 'Niveau 2 : renforts autorisés.', 'Niveau 3 : hélicoptère en route, herses autorisées.', 'Niveau 4 : toutes les unités disponibles !', 'Niveau 5 : ENNEMI PUBLIC N°1. Arrêtez-le à tout prix.'][lvl], 'pol'); } this.lastLvl = lvl; }
+    if (lvl >= 3 && !this.heliOn && this.team === 'truck') { this.heliOn = true; this.heliT = 0; const hp = truck.curPos; this.heli.position.set(hp.x - 120, 60, hp.z - 200); this.heli.visible = true; }
     if (this.released && this.time > this.nextReinforce) {
-      this.nextReinforce += 50;
+      this.nextReinforce += Math.max(22, 50 - lvl * 7);
       const count = this.police.filter(p => p.ai && !p.v.disabled).length;
-      if (count < this.diff.police - (this.team === 'police' ? 2 : 0) && truck) {
+      if (count < this.diff.police + (lvl - 1) - (this.team === 'police' ? 2 : 0) && truck) {
         const ai = this.addPolice(truck.road.s - 420, laneD(1, 0), 'chase');
         ai.v.setVelocityForward(40);
         this.radio(`Unité ${ai.v.unit} en renfort, arrive par l'arrière.`, 'pol');
       }
     }
-    if (!this.blockDone && this.released && this.time > 75 && truck && truck.road.s < DEST.s0 - 1500) {
+    if (!this.blockDone && this.released && this.time > this.nextBlock && truck && truck.road.s < DEST.s0 - 1500 && truck.road.d > -18) {
       this.blockDone = true;
       let bs = truck.road.s + 1100;
       if ((bs > 2950 && bs < 3650) || (bs > 5750 && bs < 6350)) bs += 700;
@@ -652,7 +851,11 @@ export class Game {
       this.radio(`Barrage installé au PK ${(bs / 1000).toFixed(1)} avec herse. Voies de gauche bloquées.`, 'pol');
       this.roadblock = { s: bs, units: [a, b] };
     }
-    if (this.roadblock && truck && truck.road.s > this.roadblock.s + 30) { for (const ai of this.roadblock.units) if (ai.role === 'roadblock') ai.role = 'chase'; this.roadblock = null; }
+    if (this.roadblock && truck && truck.road.s > this.roadblock.s + 30) {
+      for (const ai of this.roadblock.units) if (ai.role === 'roadblock') ai.role = 'chase';
+      if (this.team === 'truck') { this.heat += 8; this.triggerSlowmo('BARRAGE FORCÉ !'); }
+      this.roadblock = null; if (lvl >= 3) { this.blockDone = false; this.nextBlock = this.time + 60; }
+    }
     for (const p of this.police) if (p.ai && truck && p.ai.role === 'chase' && truck.road.s - p.v.road.s > 1300) {
       p.v.resetOnRoad(truck.road.s - 700, laneD(1, 0)); p.v.setVelocityForward(40);
     }
@@ -671,11 +874,27 @@ export class Game {
       if (truck.upright < 0.3 && truck.kmh < 5) this.bust = Math.min(1, this.bust + dt / 2);
       if (this.bust >= 1) return this.finish(this.team === 'police', this.team === 'police' ? 'Suspect interpellé !' : (this.coop ? 'Les routiers sont arrêtés !' : 'Vous avez été interpellé.'), truck.disabled ? 'Le camion est hors d’usage.' : (this.coop ? 'La Tomme Dorée finira en tube. Quelle tristesse.' : 'La police a immobilisé le camion.'));
       const rd = truck.road;
-      if (rd.s > DEST.s0 && rd.s < DEST.s1 && rd.d < DEST.d0 + 2 && rd.d > DEST.d1) {
+      const inDepot = r2 => r2.s > DEST.s0 && r2.s < DEST.s1 && r2.d < DEST.d0 + 2 && r2.d > DEST.d1;
+      if (this.mission?.obj === 'fragile' && inDepot(rd) && this.cargo < 40) return this.finish(false, 'Cargaison ruinée', `Il ne reste que ${Math.round(this.cargo)} % de Tomme Dorée intacte. Le client refuse la livraison.`);
+      if (this.allies.length) { // convoi : il faut 2 camions sur 3 à la plateforme
+        for (const a of this.allies) {
+          if (a.status !== 'run') continue;
+          if (inDepot(a.v.road)) { a.status = 'ok'; this.hud.msg(`📦 ${a.v.name} est arrivé à la plateforme !`); continue; }
+          const near = this.police.some(p => !p.v.disabled && p.v.curPos.distanceTo(a.v.curPos) < 15);
+          a.bust = near && a.v.kmh < 14 ? a.bust + dt / 3.2 : Math.max(0, a.bust - dt / 5);
+          if (a.bust >= 1 || a.v.disabled) { a.status = 'lost'; this.radio(`${a.v.name} intercepté !`, 'pol'); }
+        }
+        if (inDepot(rd) && !this.playerArrived) { this.playerArrived = true; this.hud.msg('📦 Vous êtes arrivé ! Attendez le reste du convoi…'); }
+        const ok = this.allies.filter(a => a.status === 'ok').length + (this.playerArrived ? 1 : 0), lost = this.allies.filter(a => a.status === 'lost').length;
+        if (ok >= 2) return this.finish(true, 'Convoi livré !', `${ok} camions sur 3 sont arrivés à la plateforme.`);
+        if (lost >= 2) return this.finish(false, 'Convoi démantelé', 'Deux camions ont été interceptés.');
+        if (!this.playerArrived) { /* continue */ } else return;
+      } else if (inDepot(rd)) {
         return this.finish(this.team === 'truck', this.team === 'truck' ? 'Livraison réussie !' : 'Le suspect s’est échappé.', this.coop ? 'La Tomme Dorée est sauvée ! Les fromagers pleurent de joie.' : 'Le camion a atteint la Plateforme Logistique.');
       }
       this.situationRadio(truck);
     }
+    if (this.mission?.obj === 'fragile') this.hud.cargo?.(this.cargo);
     if (this.team === 'police' && pl.disabled) return this.finish(false, 'Véhicule hors service', 'Votre voiture de police est trop endommagée.');
     if (this.timeLeft <= 0) return this.finish(this.team === 'police', this.team === 'police' ? 'Livraison empêchée !' : 'Temps écoulé', 'Le camion n’a pas atteint sa destination à temps.');
   }
@@ -710,15 +929,27 @@ export class Game {
     this.spikes.push({ s, d, w, mesh });
   }
 
+  onImpact(v) {
+    const pl = this.player, truck = this.targetTruck();
+    if (v === pl && this.mission?.obj === 'fragile') { this.cargo = Math.max(0, this.cargo - (v.impact - 1.5) * 4.5); if (v.impact > 4) this.hud.toast(`🧀 Cargaison : ${Math.round(this.cargo)} %`); }
+    if (v.isPolice && truck && this.team === 'truck' && v.curPos.distanceTo(truck.curPos) < 20) { this.heat += Math.min(6, v.impact); this.say('ram' + v.unit, `${v.name} percutée par le camion !`, 12); }
+    if (v === pl && v.impact > 7 && this.state === 'play') this.triggerSlowmo('CHOC !');
+  }
+  triggerSlowmo(label) {
+    if (!settings.slowmo || this.slowCd > 0 || this.coopKind === 'online' || this.mirror) return;
+    this.slow = 2.4; this.slowCd = 25; this.slowA = Math.random() * 6;
+    document.body.classList.add('slowmo'); $('slowmo-label').textContent = label;
+  }
+
   onDisabled(v) {
     if (this.state !== 'play') return;
-    if (v.isPolice && v !== this.player) this.radio(`${v.name} hors service !`, 'pol');
+    if (v.isPolice && v !== this.player) { this.radio(`${v.name} hors service !`, 'pol'); if (this.team === 'truck') { this.heat += 15; this.triggerSlowmo('UNITÉ HORS SERVICE'); } }
     if (v === this.player && this.team === 'truck') this.hud.msg('Votre camion est hors d’usage !', 'red');
   }
   onTrafficCrash(car) {
     if (this.state !== 'play') return;
     const truck = this.targetTruck();
-    if (truck && car.cur.distanceTo(truck.curPos) < 30) this.say('civ', 'Le camion a percuté un civil ! Priorité : arrêter ce chauffard.', 15);
+    if (truck && car.cur.distanceTo(truck.curPos) < 30) { this.heat += 6; this.say('civ', 'Le camion a percuté un civil ! Priorité : arrêter ce chauffard.', 15); }
     else this.say('acc', 'Accident signalé, véhicules civils impliqués. Prudence.', 20);
   }
 
@@ -727,7 +958,7 @@ export class Game {
     this.ended = true;
     this.setState('end');
     const pl = this.player;
-    const el = (DIFF[settings.difficulty] || DIFF.normal).time + (this.coop ? 120 : 0) - this.timeLeft;
+    const el = this.timeTotal - this.timeLeft;
     const best = +(localStorage.getItem('tat_best') || 0);
     const score = Math.round(this.score + (win ? 2000 : 0) + (this.coop ? this.coop.score : 0));
     if (score > best) try { localStorage.setItem('tat_best', score); } catch (e) { }
@@ -735,6 +966,18 @@ export class Game {
       ['Temps', fmtTime(el)], ['Distance', ((pl.road.s - this.stats.start) / 1000).toFixed(2) + ' km'], ['Vitesse max', Math.round(this.stats.topSpeed) + ' km/h'],
       ['Accidents causés', this.stats.crashes], ['État du véhicule', Math.round(100 - pl.damage) + ' %'], ['Score', score + (score > best ? ' 🏆' : '')],
     ];
+    // carrière : étoiles et argent
+    let stars = 0, money = 0;
+    if (this.team === 'truck' && this.mode !== 'free') {
+      if (win) { stars = 1; const M = this.mission; if (el <= (M?.par ?? 330)) stars++; if ((M?.obj === 'fragile' ? this.cargo > 80 : pl.damage < 30) && this.stats.crashes <= 3) stars++; }
+      const base = this.mission ? this.mission.reward : 400;
+      money = win ? Math.round(base * (0.5 + 0.25 * stars) + score / 20) : Math.round(score / 40);
+      profile.money += money;
+      if (this.mission && stars > (profile.stars[this.mission.id] || 0)) profile.stars[this.mission.id] = stars;
+      saveProfile();
+      rows.push(['Récompense', '+' + money + ' €'], ['Étoiles', '⭐'.repeat(stars) + '☆'.repeat(3 - stars)]);
+    }
+    this.lastStars = stars;
     this.showEnd(win, title, sub, rows);
     if (this.coop && this.coopKind === 'online') this.net.send({ t: 'end', win, title, sub, rows });
     this.audio.beep(win ? 880 : 220, 0.6, 0.2);
@@ -747,6 +990,8 @@ export class Game {
     $('end').className = 'screen center on ' + (win ? 'win' : 'lose');
     $('end-badge').textContent = win ? 'VICTOIRE' : 'DÉFAITE';
     $('end-stats').innerHTML = rows.map(([a, b]) => `<div><span>${a}</span><b>${b}</b></div>`).join('');
+    const nx = this.mission && win ? MISSIONS[MISSIONS.indexOf(this.mission) + 1] : null; $('e-next').style.display = nx ? '' : 'none'; $('e-next').dataset.m = nx?.id || '';
+    this.heli.visible = false; this.audio.rotor?.(0); Voice.say(title, { prio: true, pitch: 1, rate: 1.05 });
   }
 
   // ---------- menu / garage ----------
@@ -823,6 +1068,7 @@ export class Game {
     n.on('big', m => { if (this.mirror) this.hud.big(m.h); });
     n.on('end', m => { if (this.mirror) this.showEnd(m.win, m.title, m.sub, m.rows); });
     n.on('cine', () => { if (this.mirror) this.mirrorCine = true; });
+    n.on('speech', m => { if (this.coop) this.handleSpeech(m.idx, m.text, false); });
   }
   updateRemotes(dt) {
     if (!this.net.room || this.mode !== 'online') return;
@@ -859,7 +1105,9 @@ export class Game {
       if (v.trailer) { const tp = v.trailer.curPos, tq = v.trailer.curQuat; a.push(+tp.x.toFixed(2), +tp.y.toFixed(2), +tp.z.toFixed(2), +tq.x.toFixed(4), +tq.y.toFixed(4), +tq.z.toFixed(4), +tq.w.toFixed(4)); }
       return a;
     });
-    this.net.send({ t: 'snap', v: V, tr: this.traffic.snapshot(), g: { tl: +this.timeLeft.toFixed(1), b: +this.bust.toFixed(2), st: this.state, c: this.coop.serialize(), bn: this.bananas.map(b => [+b.mesh.position.x.toFixed(1), +b.mesh.position.z.toFixed(1)]), sc: Math.round(this.score), tm: +this.time.toFixed(1), rel: this.released ? 1 : 0, w: this.env.weather, tod: this.env.timeOfDay } });
+    this.snapN = (this.snapN || 0) + 1;
+    const pp = this.player?.curPos, tr = this.snapN % 2 ? null : this.traffic.snapshot().filter(c => !pp || Math.hypot(c[3] - pp.x, c[4] - pp.z) < 450); // trafic à 7,5 Hz et seulement à proximité
+    this.net.send({ t: 'snap', v: V, tr, g: { tl: +this.timeLeft.toFixed(1), b: +this.bust.toFixed(2), st: this.state, c: this.coop.serialize(), bn: this.bananas.map(b => [+b.mesh.position.x.toFixed(1), +b.mesh.position.z.toFixed(1)]), sc: Math.round(this.score), tm: +this.time.toFixed(1), rel: this.released ? 1 : 0, w: this.env.weather, tod: this.env.timeOfDay } });
   }
 
   // ---------- coop en ligne côté invité : on affiche le monde de l'hôte ----------
@@ -873,6 +1121,7 @@ export class Game {
     this.hud.setRole('truck', 'chase'); this.hud.show(true);
     this.setState('countdown'); this.mirrorCine = !!cfg.cineFirst;
     this.byUid = new Map(); this.lastSnap = null; this.inputT = 0;
+    this.startVoiceChat();
     this.coopMsg('🚛 Tu as rejoint la cabine de ' + (host?.name || 'ton pote') + ' ! <b>Tab</b> = relais, <b>1-7</b> = actions de copilote, <b>V</b> = radio CB.');
   }
   mirrorFrame(dt) {
@@ -902,7 +1151,7 @@ export class Game {
         v.snapAt = performance.now();
       }
       for (const [uid, v] of this.byUid) if (!seen.has(uid)) { v.dispose(); this.byUid.delete(uid); this.vehicles = this.vehicles.filter(x => x !== v); this.police = this.police.filter(p => p.v !== v); }
-      this.traffic.applySnapshot(m.tr);
+      if (m.tr) this.traffic.applySnapshot(m.tr);
       const g = m.g;
       this.timeLeft = g.tl; this.bust = g.b; this.score = g.sc; this.released = !!g.rel;
       if (g.st !== this.state && g.st !== 'end') this.setState(g.st);
@@ -925,7 +1174,10 @@ export class Game {
       this.inputT -= dt;
       if (this.coop.driver === 1 && this.inputT <= 0) { this.inputT = 1 / 30; this.net.send({ t: 'input', i: inp.drive() }); }
       if (inp.hit('Tab')) this.coopAct('swap');
-      if (this.coop.driver !== 1) ACTIONS.forEach(a => { if (inp.hit('Digit' + a.k) || inp.hit('Numpad' + a.k)) this.coopAct(a.id); });
+      this.coopPad();
+      if (Mini.on) { if (inp.hit('Space') || inp.hit('Enter') || ACTIONS.some(a => inp.hit('Digit' + a.k))) Mini.pad(); }
+      else if (this.coop.driver !== 1) ACTIONS.forEach(a => { if (inp.hit('Digit' + a.k) || inp.hit('Numpad' + a.k)) this.coopAct(a.id); });
+      if (this.coop.roof && inp.mouse.clicked && document.pointerLockElement) this.coopAct('throw');
       if (inp.hit('KeyC')) this.hud.toast(CAM_NAMES[this.camRig.cycle()]);
     }
     for (const v of this.vehicles) {

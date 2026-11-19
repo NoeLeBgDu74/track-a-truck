@@ -33,6 +33,10 @@ export const DEST_S = 7600;               // plateforme logistique (côté droit
 export const DEST = { s0: 7560, s1: 7780, d0: -24, d1: -92 };
 export const EXIT_GAP = [7380, 7800];     // glissière ouverte vers la plateforme
 export const TUNNELS = [[3000, 3560], [5800, 6260]];
+// Itinéraire bis : sortie 15 → route départementale D77 parallèle (d ≈ -140) → arrière de la plateforme
+export const EXIT15 = [3600, 3760];
+export const D77 = { s0: 3900, s1: 7440, d: -140, half: 3.6 };
+export const VILLAGE = { s0: 5300, s1: 5650, name: 'Saint-Fromage-sur-Tomme' };
 export const REST_AREAS = [{ s0: 1900, s1: 2250, name: 'Aire des Grands Champs' }, { s0: 4700, s1: 5050, name: 'Aire du Val Doré' }];
 export const OVERPASSES = [820, 1480, 2620, 3950, 4420, 5320, 6900, 7250, -250, 8300, 9400];
 export const EXIT_NUM = 18;
@@ -40,6 +44,7 @@ export const inTunnel = s => TUNNELS.some(([a, b]) => s > a && s < b);
 export const railOpen = (s, side) => { // side -1 = côté droit du sens +s
   if (side > 0) return false;
   if (s > EXIT_GAP[0] && s < EXIT_GAP[1]) return true;
+  if (s > EXIT15[0] && s < EXIT15[1]) return true;
   return REST_AREAS.some(r => s > r.s0 - 40 && s < r.s1 + 40);
 };
 
@@ -107,7 +112,7 @@ export const TRAFFIC_TYPES = [
 const DEF = {
   quality: 'high', shadows: true, density: 'normal', weather: 'clear', time: 'day', volume: 0.8,
   difficulty: 'normal', team: 'truck', vehicle: { truck: 'semi', police: 'sedan' }, paint: {}, sens: 1, invertY: false,
-  playerName: 'Joueur', server: 'ws://localhost:8787',
+  playerName: 'Joueur', server: 'ws://localhost:8787', voices: true, slowmo: true, gearbox: 'auto', touch: 'auto',
 };
 export const settings = (() => {
   let s = {};
@@ -122,3 +127,27 @@ export const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 export const lerp = (a, b, t) => a + (b - a) * t;
 export function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 export const fmtTime = t => { t = Math.max(0, t); const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
+
+// ---------- Carrière : missions, argent, améliorations ----------
+export const MISSIONS = [
+  { id: 'm1', name: 'Premier jour', desc: 'Livraison classique, police légère. Pour se faire la main.', diff: 'easy', weather: 'clear', time: 'day', obj: 'deliver', reward: 600, par: 330 },
+  { id: 'm2', name: 'Fromage fragile', desc: 'La Tomme Dorée est fragile : chaque choc abîme la cargaison. Livrez-la à plus de 40 %.', diff: 'normal', weather: 'clear', time: 'dusk', obj: 'fragile', reward: 1000, par: 340 },
+  { id: 'm3', name: 'Nuit blanche', desc: 'Livraison de nuit sous la pluie. L’hélicoptère a un projecteur.', diff: 'normal', weather: 'rain', time: 'night', obj: 'deliver', reward: 1200, par: 340, heat: 2 },
+  { id: 'm4', name: 'Le convoi', desc: 'Trois camions partent ensemble. Au moins deux doivent arriver.', diff: 'normal', weather: 'clear', time: 'day', obj: 'convoy', reward: 1600, par: 360 },
+  { id: 'm5', name: 'Contre la montre', desc: 'Le client attend : 4 min 30 chrono. Pensez à l’itinéraire bis (sortie 15).', diff: 'normal', weather: 'fog', time: 'day', obj: 'deliver', reward: 1500, par: 250, limit: 270 },
+  { id: 'm6', name: 'Ennemi public n°1', desc: 'Recherche maximale dès le départ. Hélicoptère, barrages, herses. Bonne chance.', diff: 'hard', weather: 'storm', time: 'night', obj: 'deliver', reward: 2500, par: 360, heat: 4 },
+];
+export const UPGRADES = {
+  engine: { name: 'Moteur', desc: '+12 % de puissance par niveau', cost: [800, 1600, 3000] },
+  tires: { name: 'Pneus', desc: '+8 % d’adhérence par niveau', cost: [500, 1100, 2200] },
+  armor: { name: 'Blindage', desc: '−18 % de dégâts par niveau', cost: [700, 1500, 2800] },
+  tank: { name: 'Réservoir', desc: 'Moins de consommation en coop', cost: [400, 900, 1800] },
+};
+export const SPECIAL_PAINTS = [{ c: 0xd4af37, name: 'Or', cost: 2500 }, { c: 0xc8ccd2, name: 'Chrome', cost: 2000 }, { c: 0xff2fa0, name: 'Rose fluo', cost: 1200 }];
+export const profile = (() => {
+  let p = {};
+  try { p = JSON.parse(localStorage.getItem('tat_profile') || '{}'); } catch (e) { }
+  return Object.assign({ money: 500, stars: {}, best: {}, up: {}, paints: [] }, p);
+})();
+export function saveProfile() { try { localStorage.setItem('tat_profile', JSON.stringify(profile)); } catch (e) { } }
+export const upLevel = (vid, k) => (profile.up[vid] || {})[k] || 0;
