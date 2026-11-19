@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
-import { settings, saveSettings, VEHICLES, TEAM_VEHICLES, PAINTS, MISSIONS, UPGRADES, SPECIAL_PAINTS, profile, saveProfile, upLevel } from './config.js';
+import { settings, saveSettings, VEHICLES, TEAM_VEHICLES, PAINTS, MISSIONS, UPGRADES, SPECIAL_PAINTS, profile, saveProfile, upLevel, ACHIEVEMENTS, fmtTime } from './config.js';
 import { MenuTruck } from './menutruck.js';
 import { QUICK_CHAT } from './net.js';
 
@@ -81,8 +81,10 @@ function ui(game) {
     $('cr-list').innerHTML = MISSIONS.map((m, i) => {
       const st = profile.stars[m.id] || 0, locked = i > 0 && !(profile.stars[MISSIONS[i - 1].id] > 0);
       const w = { clear: '☀', rain: '🌧', storm: '⛈', fog: '🌫' }[m.weather], t = { day: 'jour', dusk: 'crépuscule', night: 'nuit' }[m.time];
-      return `<button class="mis" data-m="${m.id}" ${locked ? 'disabled' : ''}><span class="rw">${m.reward} €</span><b>${i + 1}. ${m.name}</b><span>${m.desc}</span><div class="tags">${w} ${t} · ${{ easy: 'facile', normal: 'normal', hard: 'difficile' }[m.diff]}${m.heat ? ' · ' + '★'.repeat(m.heat + 1) + ' recherché' : ''}</div><div class="st">${locked ? '🔒' : '⭐'.repeat(st) + '☆'.repeat(3 - st)}</div></button>`;
+      return `<button class="mis" data-m="${m.id}" ${locked ? 'disabled' : ''}><span class="rw">${m.reward} €</span><b>${i + 1}. ${m.name}</b><span>${m.desc}</span><div class="tags">${w} ${t} · ${{ easy: 'facile', normal: 'normal', hard: 'difficile' }[m.diff]}${m.heat ? ' · ' + '★'.repeat(m.heat + 1) + ' recherché' : ''}</div><div class="st">${locked ? '🔒' : '⭐'.repeat(st) + '☆'.repeat(3 - st)}${profile.best[m.id] ? ' <small style="font-size:11px;color:var(--mute)">🏁 ' + fmtTime(profile.best[m.id]) + '</small>' : ''}</div></button>`;
     }).join('');
+    const nA = ACHIEVEMENTS.filter(a => profile.ach[a.id]).length; $('cr-achn').textContent = `${nA} / ${ACHIEVEMENTS.length}`;
+    $('cr-ach').innerHTML = ACHIEVEMENTS.map(a => `<div class="${profile.ach[a.id] ? 'on' : ''}"><b>${profile.ach[a.id] ? a.icon : '🔒'} ${a.name}</b>${a.desc} · +${a.reward} €</div>`).join('');
     $('cr-list').querySelectorAll('.mis').forEach(b => b.onclick = () => { show('none'); game.start({ mode: 'chase', team: 'truck', mission: b.dataset.m }); });
   }
   $('cr-garage').onclick = () => { show('garage'); game.openGarage('truck'); renderGarage(); };

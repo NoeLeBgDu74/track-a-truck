@@ -156,10 +156,24 @@ export const UPGRADES = {
   tank: { name: 'Réservoir', desc: 'Moins de consommation en coop', cost: [400, 900, 1800] },
 };
 export const SPECIAL_PAINTS = [{ c: 0xd4af37, name: 'Or', cost: 2500 }, { c: 0xc8ccd2, name: 'Chrome', cost: 2000 }, { c: 0xff2fa0, name: 'Rose fluo', cost: 1200 }];
+export const ACHIEVEMENTS = [
+  { id: 'first', icon: '📦', name: 'Première livraison', desc: 'Livrer une cargaison à la plateforme', reward: 300 },
+  { id: 'clean', icon: '✨', name: 'Sans une égratignure', desc: 'Livrer avec moins de 10 % de dégâts', reward: 600 },
+  { id: 'heli', icon: '🚁', name: 'Star du JT', desc: 'Être suivi par l’hélicoptère', reward: 300 },
+  { id: 'five', icon: '⭐', name: 'Ennemi public n°1', desc: 'Atteindre 5 étoiles de recherche', reward: 500 },
+  { id: 'block', icon: '🚧', name: 'Bélier', desc: 'Forcer un barrage de police', reward: 400 },
+  { id: 'combo', icon: '💨', name: 'Faufileur', desc: 'Enchaîner 4 frôlements', reward: 400 },
+  { id: 'bis', icon: '🌾', name: 'Touriste', desc: 'Passer par le village de Saint-Fromage', reward: 300 },
+  { id: 'park', icon: '🅿️', name: 'Créneau parfait', desc: 'Se garer au quai en moins de 25 s', reward: 500 },
+  { id: 'cop', icon: '👮', name: 'Shérif de l’A77', desc: 'Arrêter un camion en mode police', reward: 500 },
+  { id: 'banana', icon: '🍌', name: 'Mario Kart', desc: 'Faire glisser une voiture de police (banane ou huile)', reward: 300 },
+  { id: 'nohands', icon: '🙌', name: 'Sans les mains !', desc: 'Lâcher le volant à plus de 80 km/h (commande vocale)', reward: 300 },
+  { id: 'all', icon: '🏆', name: 'Routier de légende', desc: '3 étoiles sur toutes les missions', reward: 3000 },
+];
 export const profile = (() => {
   let p = {};
   try { p = JSON.parse(localStorage.getItem('tat_profile') || '{}'); } catch (e) { }
-  return Object.assign({ money: 500, stars: {}, best: {}, up: {}, paints: [] }, p);
+  return Object.assign({ money: 500, stars: {}, best: {}, up: {}, paints: [], ach: {} }, p);
 })();
 export function saveProfile() { try { localStorage.setItem('tat_profile', JSON.stringify(profile)); } catch (e) { } }
 export const upLevel = (vid, k) => (profile.up[vid] || {})[k] || 0;

@@ -258,6 +258,13 @@ body.coop #mapwrap { bottom:150px; } body.coop #speedwrap { bottom:150px; transf
 #h-cargo i { display:block; height:6px; background:rgba(255,255,255,.1); border-radius:3px; margin-top:5px; overflow:hidden; } #h-cargo b { display:block; height:100%; width:100%; background:#ffd060; }
 #h-net { position:absolute; top:14px; right:16px; padding:4px 10px; font:600 11px Inter; display:none; }
 #bigtext.wanted { color:#ffd060; font-size:90px; }
+/* succès */
+#ach { position:fixed; top:70px; left:50%; transform:translate(-50%,-20px); z-index:45; background:linear-gradient(90deg,#2a1e08,#3a2a0a); border:2px solid #ffd060; border-radius:14px; padding:10px 18px; display:grid; grid-template-columns:1fr auto; gap:2px 16px; opacity:0; pointer-events:none; transition:.35s; box-shadow:0 10px 40px rgba(0,0,0,.5); min-width:300px; }
+#ach.on { opacity:1; transform:translate(-50%,0); }
+#ach b { font:700 18px Rajdhani; color:#ffd060; letter-spacing:.06em; grid-column:1; } #ach span { font-size:12px; color:#f0e6cc; grid-column:1; } #ach i { font-style:normal; font:700 20px Rajdhani; color:#7dff9a; grid-row:1 / span 2; grid-column:2; align-self:center; }
+.achs { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:8px; margin-top:6px; }
+.achs div { padding:8px 10px; border-radius:10px; border:1px solid var(--line); background:rgba(255,255,255,.03); font-size:12px; color:var(--mute); }
+.achs div.on { border-color:#ffd060; background:rgba(255,208,96,.08); color:var(--ink); } .achs b { display:block; font:700 15px Rajdhani; color:inherit; }
 /* ralenti */
 #slowmo { position:fixed; inset:0; z-index:30; pointer-events:none; display:none; }
 body.slowmo #slowmo { display:block; }
@@ -362,6 +369,8 @@ body.touch #speedwrap { transform:scale(.55); transform-origin:left top; top:120
     <p class="sub">Réussis les missions pour gagner des étoiles et de l'argent. L'argent sert à améliorer ton camion au garage.</p>
     <div class="money">💰 <b id="cr-money">0</b> €</div>
     <div class="missions" id="cr-list"></div>
+    <h3>Succès <span id="cr-achn"></span></h3>
+    <div class="achs" id="cr-ach"></div>
     <div class="row"><button class="btn" data-back="home">Retour</button><button class="btn" id="cr-garage">🔧 Garage &amp; améliorations</button></div>
   </div>
 </section>
@@ -532,6 +541,7 @@ body.touch #speedwrap { transform:scale(.55); transform-origin:left top; top:120
 </div>
 
 
+<div id="ach"></div>
 <div id="slowmo"><div class="bar top"></div><div class="bar bot"></div><div id="slowmo-label"></div><div class="rec">● REPLAY</div></div>
 <div id="mini"><div class="mini-box"><div id="mini-title"></div><div id="mini-hint"></div><div id="mini-body"></div><div class="mini-time"><b id="mini-time"></b></div></div></div>
 <div id="touch">

@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import {
   VEHICLES, TEAM_VEHICLES, PAINTS, settings, saveSettings, laneD, SHOULDER_D, roadToWorld, roadYaw, worldToRoad, DEST, DEST_S,
-  inTunnel, clamp, rng, fmtTime, REST_AREAS, EXIT_GAP, TUNNELS, MISSIONS, profile, saveProfile, D77, EXIT15, YARD_END, YARD_START,
+  inTunnel, clamp, rng, fmtTime, REST_AREAS, EXIT_GAP, TUNNELS, MISSIONS, profile, saveProfile, ACHIEVEMENTS, VILLAGE, D77, EXIT15, YARD_END, YARD_START,
 } from './config.js';
 import { Voice } from './voice.js';
 import { World } from './world.js';
@@ -94,7 +94,7 @@ export class Game {
     for (const v of this.vehicles) v.dispose();
     this.vehicles = []; this.police = []; this.fugitives = []; this.spikes.forEach(s => this.scene.remove(s.mesh)); this.spikes = [];
     this.bananas.forEach(b => this.scene.remove(b.mesh)); this.bananas = [];
-    this.cartons?.forEach(c => { this.scene.remove(c.mesh); this.phys.removeRigidBody(c.body); }); this.cartons = []; this.fugGad = null; this.slicks?.forEach(sl => this.scene.remove(sl.mesh)); this.slicks = []; this.smokeT = null; this.parkInfo = null; this.parkHint = false; if (this.bayMark) this.bayMark.visible = false;
+    this.cartons?.forEach(c => { this.scene.remove(c.mesh); this.phys.removeRigidBody(c.body); }); this.cartons = []; this.fugGad = null; this.slicks?.forEach(sl => this.scene.remove(sl.mesh)); this.slicks = []; this.smokeT = null; this.parkInfo = null; this.parkHint = false; this.lotT = 0; if (this.bayMark) this.bayMark.visible = false;
     this.mirrorProps?.forEach(m => this.scene.remove(m)); this.mirrorProps = []; this.bubbleList?.forEach(b => this.scene.remove(b.sp)); this.bubbleList = []; this.heliTarget = null; this.heliT = 0;
     if (this.heli) { this.heli.visible = false; this.heliOn = false; this.heliSpot.intensity = 0; } this.audio.rotor?.(0); this.slow = 0; document.body.classList.remove('slowmo'); this.allies = []; this.mission = null; Voice.stop();
     if (this.person) this.leaveFoot(true);
@@ -369,7 +369,7 @@ export class Game {
     if (!intents.length) { anim(1 - idx, 'shrug', 1.6); if (Math.random() < 0.35) reply(['Hein ? J’ai rien compris.', 'Quoi ? Répète, y a le moteur.', 'Ouais… ouais… si tu le dis.', 'C’est toi qui vois.'][Math.floor(Math.random() * 4)]); return; }
     const i0 = intents[0];
     for (const it of intents.slice(0, 2)) switch (it) {
-      case 'nohands': anim(idx, 'nohands', 3); if (drv && !this.mirror) this.noHands = 3; reply(drv ? 'NON MAIS T’ES MALADE ?! REPRENDS LE VOLANT !' : 'Bravo… et moi je fais quoi, j’applaudis ?'); if (drv) anim(1 - idx, 'scared', 3); break;
+      case 'nohands': anim(idx, 'nohands', 3); if (drv && !this.mirror) { this.noHands = 3; if (this.player.kmh > 80) this.unlock('nohands'); } reply(drv ? 'NON MAIS T’ES MALADE ?! REPRENDS LE VOLANT !' : 'Bravo… et moi je fais quoi, j’applaudis ?'); if (drv) anim(1 - idx, 'scared', 3); break;
       case 'scared': anim(0, 'scared', 2.2); anim(1, 'scared', 2.2); if (!this.mirror && !c.humans[c.driver]) this.aiCmd = { brake: 1.8 }; if (i0 === it) reply(['AAAAH !', 'QUOI ?! OÙ ÇA ?!', 'Je freine, je freine !'][Math.floor(Math.random() * 3)]); break;
       case 'faster': anim(idx, 'point', 1.5); if (!this.mirror && !c.humans[c.driver]) this.aiCmd = { faster: 6 }; reply('Accroche-toi à ton sandwich !'); break;
       case 'slower': if (!this.mirror && !c.humans[c.driver]) this.aiCmd = { slower: 6 }; reply('Ok, ok, je lève le pied.'); break;
@@ -557,6 +557,7 @@ export class Game {
     if (this.state === 'play') { this.rules(dt); this.nearMiss(dt); }
     if (pl) {
       this.stats.topSpeed = Math.max(this.stats.topSpeed, pl.kmh);
+      if (this.state === 'play' && pl.road.d < -120 && pl.road.s > VILLAGE.s0 && pl.road.s < VILLAGE.s1) this.unlock('bis');
       // « pschitt » des freins à air quand le poids lourd s'immobilise
       if (pl.team === 'truck') { if (pl.kmh > 8) this.airArm = true; if (this.airArm && pl.kmh < 1.5 && pl.brk > 0.1) { this.airArm = false; this.audio.hiss?.(); } }
     }
@@ -639,7 +640,7 @@ export class Game {
         if (v.oil > 0) continue;
         const dx = v.curPos.x - b.mesh.position.x, dz = v.curPos.z - b.mesh.position.z;
         if (dx * dx + dz * dz < 2.2 * 2.2) {
-          v.oil = 2.2; b.dead = true;
+          v.oil = 2.2; b.dead = true; if (v.isPolice && v !== this.player) this.unlock('banana');
           v.body.applyTorqueImpulse({ x: 0, y: (Math.random() < 0.5 ? -1 : 1) * v.mass * 1.8, z: 0 }, true);
           this.audio.slap?.();
           if (v.isPolice && v !== this.player) this.say('banana' + v.unit, `${v.name} : « J’AI GLISSÉ SUR UNE BANANE ?! Qui fait ça ?! » 🍌`, 3);
@@ -724,6 +725,16 @@ export class Game {
     if (this.mode === 'chase' || this.mode === 'coop') { this.timeLeft -= 5; this.hud.toast('Repositionnement (−5 s)'); }
   }
 
+  // ---------- succès ----------
+  unlock(id) {
+    if (this.mirror || this.mode === 'online' || profile.ach[id]) return;
+    const a = ACHIEVEMENTS.find(x => x.id === id); if (!a) return;
+    profile.ach[id] = Date.now(); profile.money += a.reward; saveProfile();
+    const el = document.getElementById('ach'); el.innerHTML = `<b>${a.icon} Succès débloqué !</b><span>${a.name} — ${a.desc}</span><i>+${a.reward} €</i>`;
+    el.classList.remove('on'); void el.offsetWidth; el.classList.add('on'); clearTimeout(this._achT); this._achT = setTimeout(() => el.classList.remove('on'), 4200);
+    this.audio.beep(1320, 0.12); setTimeout(() => this.audio.beep(1760, 0.2), 130);
+  }
+
   // ---------- gadgets du copilote : huile, clous, fumigène ----------
   dropGadget(kind, v) {
     const back = v.trailer ? _v.set(0, 0, -v.def.trailer.len + 0.5).applyQuaternion(v.trailer.curQuat).add(v.trailer.curPos) : _v.set(0, 0, -v.def.len / 2 - 1).applyQuaternion(v.curQuat).add(v.curPos);
@@ -754,7 +765,7 @@ export class Game {
       for (const v of this.vehicles) {
         if (v === sl.owner && sl.t < 2) continue;
         const dx = v.curPos.x - sl.x, dz = v.curPos.z - sl.z; if (dx * dx + dz * dz > sl.r * sl.r) continue;
-        if (sl.kind === 'oil' && !(v.oil > 0)) { v.oil = 2.8; v.body.applyTorqueImpulse({ x: 0, y: (Math.random() < 0.5 ? -1 : 1) * v.mass * 2.2, z: 0 }, true); if (v.isPolice && v !== this.player) this.say('oil' + v.unit, `${v.name} : « De l’HUILE ?! Je glisse, je glisse ! »`, 5); }
+        if (sl.kind === 'oil' && !(v.oil > 0)) { v.oil = 2.8; if (v.isPolice && v !== this.player) this.unlock('banana'); v.body.applyTorqueImpulse({ x: 0, y: (Math.random() < 0.5 ? -1 : 1) * v.mass * 2.2, z: 0 }, true); if (v.isPolice && v !== this.player) this.say('oil' + v.unit, `${v.name} : « De l’HUILE ?! Je glisse, je glisse ! »`, 5); }
         if (sl.kind === 'nails' && v.isPolice && !v.flat) { v.flat = 1; v.spikes = 1; this.audio.crash(v.curPos, 2); if (v !== this.player) this.say('nail' + v.unit, `${v.name} : « Crevaison ! J’ai roulé sur des clous ! »`, 5); }
       }
       if (sl.t > 75) sl.dead = true;
@@ -869,7 +880,7 @@ export class Game {
       const ds = (c.s - pl.road.s) * 1, dd = Math.abs(c.d - pl.road.d) - (c.w + pl.def.w) / 2;
       if (Math.abs(ds) < (c.len + pl.def.len) / 2 && dd > 0.05 && dd < 1.1 && Math.sign(c.d) === Math.sign(pl.road.d)) {
         c.nm = pl.uid; this.combo++; this.comboT = 4;
-        const pts = 100 * this.combo; this.score += pts;
+        const pts = 100 * this.combo; this.score += pts; if (this.combo >= 4) this.unlock('combo');
         this.hud.toast(`FRÔLEMENT ! +${pts}${this.combo > 1 ? '  ×' + this.combo : ''}`);
       }
     }
@@ -933,7 +944,8 @@ export class Game {
     if (this.released) this.heat = Math.min(100, this.heat + dt * 0.18);
     const lvl = this.wanted = this.team === 'truck' ? Math.min(5, 1 + Math.floor(this.heat / 20)) : 0;
     if (lvl !== this.lastLvl) { if (this.lastLvl && lvl > this.lastLvl) { this.hud.big('★'.repeat(lvl), 'wanted'); this.radio(['', '', 'Niveau 2 : renforts autorisés.', 'Niveau 3 : hélicoptère en route, herses autorisées.', 'Niveau 4 : toutes les unités disponibles !', 'Niveau 5 : ENNEMI PUBLIC N°1. Arrêtez-le à tout prix.'][lvl], 'pol'); } this.lastLvl = lvl; }
-    if (lvl >= 3 && !this.heliOn && this.team === 'truck') { this.heliOn = true; this.heliT = 0; const hp = truck.curPos; this.heli.position.set(hp.x - 120, 60, hp.z - 200); this.heli.visible = true; }
+    if (lvl >= 5) this.unlock('five');
+    if (lvl >= 3 && !this.heliOn && this.team === 'truck') { this.unlock('heli'); this.heliOn = true; this.heliT = 0; const hp = truck.curPos; this.heli.position.set(hp.x - 120, 60, hp.z - 200); this.heli.visible = true; }
     if (this.released && this.time > this.nextReinforce) {
       this.nextReinforce += Math.max(22, 50 - lvl * 7);
       const count = this.police.filter(p => p.ai && !p.v.disabled).length;
@@ -955,7 +967,7 @@ export class Game {
     }
     if (this.roadblock && truck && truck.road.s > this.roadblock.s + 30) {
       for (const ai of this.roadblock.units) if (ai.role === 'roadblock') ai.role = 'chase';
-      if (this.team === 'truck') { this.heat += 8; this.triggerSlowmo('BARRAGE FORCÉ !'); }
+      if (this.team === 'truck') { this.heat += 8; this.triggerSlowmo('BARRAGE FORCÉ !'); this.unlock('block'); }
       this.roadblock = null; if (lvl >= 3) { this.blockDone = false; this.nextBlock = this.time + 60; }
     }
     for (const p of this.police) if (p.ai && truck && p.ai.role === 'chase' && truck.road.s - p.v.road.s > 1300) {
@@ -997,7 +1009,8 @@ export class Game {
         if (pl.trailer) { const tq = pl.trailer.curQuat, f = _v.set(0, 0, -6).applyQuaternion(tq).add(pl.trailer.curPos); parts.push(worldToRoad(f.x, f.z, {})); }
         const inBay = parts.some(q => Math.abs(q.s - bs) < 2.8 && q.d < YARD_END.whD0 + 22 && q.d > YARD_END.whD0 + 0.3);
         this.parkInfo = { n: this.world.targetBay + 1, dist: Math.hypot(rd.s - bs, rd.d - (YARD_END.whD0 + 10)), inBay };
-        if (inBay && pl.kmh < 3) { this.parkT += dt; if (this.parkT > 1.5) return this.finish(true, 'Livraison réussie !', this.coop ? 'Camion garé au quai ' + (this.world.targetBay + 1) + '. La Tomme Dorée est sauvée !' : 'Camion garé au quai ' + (this.world.targetBay + 1) + ', les manutentionnaires déchargent.'); }
+        this.lotT = (this.lotT || 0) + dt;
+        if (inBay && pl.kmh < 3) { this.parkT += dt; if (this.parkT > 1.5) { if (this.lotT < 25) this.unlock('park'); } if (this.parkT > 1.5) return this.finish(true, 'Livraison réussie !', this.coop ? 'Camion garé au quai ' + (this.world.targetBay + 1) + '. La Tomme Dorée est sauvée !' : 'Camion garé au quai ' + (this.world.targetBay + 1) + ', les manutentionnaires déchargent.'); }
         else this.parkT = 0;
         if (!this.parkHint) { this.parkHint = true; this.hud.msg(`🅿️ Vous êtes à la plateforme ! Garez-vous au <b>quai ${this.world.targetBay + 1}</b> (rectangle vert), arrêtez-vous dedans.`); }
       } else if (inDepot(rd)) {
@@ -1099,6 +1112,10 @@ export class Game {
       rows.push(['Récompense', '+' + money + ' €'], ['Étoiles', '⭐'.repeat(stars) + '☆'.repeat(3 - stars)]);
     }
     this.lastStars = stars;
+    if (win && this.team === 'truck' && this.mode !== 'free') { this.unlock('first'); if (pl.damage < 10) this.unlock('clean'); }
+    if (win && this.team === 'police') this.unlock('cop');
+    if (this.mission && win) { const b = profile.best[this.mission.id]; if (!b || el < b) { profile.best[this.mission.id] = Math.round(el); saveProfile(); rows.push(['Record', '🏁 ' + fmtTime(el)]); } }
+    if (MISSIONS.every(m => (profile.stars[m.id] || 0) >= 3)) this.unlock('all');
     this.showEnd(win, title, sub, rows);
     if (this.coop && this.coopKind === 'online') this.net.send({ t: 'end', win, title, sub, rows });
     this.audio.beep(win ? 880 : 220, 0.6, 0.2);
