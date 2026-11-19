@@ -93,6 +93,7 @@ export class Game {
     this.vehicles = []; this.police = []; this.fugitives = []; this.spikes.forEach(s => this.scene.remove(s.mesh)); this.spikes = [];
     this.bananas.forEach(b => this.scene.remove(b.mesh)); this.bananas = [];
     this.cartons?.forEach(c => { this.scene.remove(c.mesh); this.phys.removeRigidBody(c.body); }); this.cartons = [];
+    this.mirrorProps?.forEach(m => this.scene.remove(m)); this.mirrorProps = []; this.heliTarget = null; this.heliT = 0;
     if (this.heli) { this.heli.visible = false; this.heliOn = false; this.heliSpot.intensity = 0; } this.audio.rotor?.(0); this.slow = 0; document.body.classList.remove('slowmo'); this.allies = []; this.mission = null; Voice.stop();
     if (this.person) this.leaveFoot(true);
     this.player = null; this.bust = 0; this.audio.stopAllSirens?.(); this.audio.music?.('off'); this.audio.buzz?.(false);
@@ -209,8 +210,8 @@ export class Game {
     return v;
   }
   addPolice(s, d, role) {
-    const ids = ['sedan', 'suv', 'wagon'];
-    const v = this.addVehicle(ids[this.unitN % 3], s, d, { ai: true, name: 'Unité ' + this.unitN });
+    const ids = ['sedan', 'suv', 'wagon'], moto = (this.wanted || 0) >= 4 && role === 'chase' && Math.random() < 0.55;
+    const v = this.addVehicle(moto ? 'moto' : ids[this.unitN % 3], s, d, { ai: true, name: (moto ? 'Motard ' : 'Unité ') + this.unitN });
     v.unit = this.unitN++;
     const ai = new AIDriver(this, v, role, { target: this.targetTruck(), skill: this.diff.skill, speedCap: this.diff.speed });
     ai.lane = Math.floor(Math.random() * 3);
@@ -722,17 +723,18 @@ export class Game {
   }
   heliStep(dt) {
     const h = this.heli, truck = this.targetTruck();
+    if (this.mirror && this.heliTarget && truck) { this.heliT += dt; h.position.lerp(new THREE.Vector3(...this.heliTarget), Math.min(1, dt * 5)); }
     if (!this.heliOn || !truck || !h.visible) { this.heliSpot.intensity = 0; return; }
     this.heliT += dt;
     const f = truck.forward, want = new THREE.Vector3(truck.curPos.x - f.x * 35 + Math.sin(this.heliT * 0.3) * 20, 42 + Math.sin(this.heliT * 0.5) * 4, truck.curPos.z - f.z * 35 + Math.cos(this.heliT * 0.3) * 10);
-    h.position.lerp(want, Math.min(1, dt * 0.6));
+    if (!this.mirror) h.position.lerp(want, Math.min(1, dt * 0.6));
     h.lookAt(truck.curPos.x, h.position.y - 8, truck.curPos.z);
     this.heliRotor.rotation.y += dt * 40; this.heliTail.rotation.x += dt * 60;
     const night = this.env.night > 0.4 || this.env.fogAmt > 0.5 || this.env.rainAmt > 0.5;
     this.heliSpot.target.position.copy(truck.curPos); this.heliSpot.intensity = night ? 3500 : 0;
     this.heliBeam.visible = night; this.heliBeam.lookAt(truck.curPos); this.heliBeam.rotateX(-Math.PI / 2);
     this.audio.rotor?.(Math.max(0, 0.5 - h.position.distanceTo(this.camera.position) / 400));
-    if (this.heliT > 3 && this.heliT < 3.1) this.radio('Hélicoptère Dragon 74 en position, je l’ai dans le projecteur !', 'pol');
+    if (!this.mirror && this.heliT > 3 && this.heliT < 3.1) this.radio('Hélicoptère Dragon 74 en position, je l’ai dans le projecteur !', 'pol');
   }
   // objets lancés : cartons (copilote sur la remorque) et meules de fromage (portes ouvertes)
   spawnProp(kind, pos, vel) {
@@ -1107,7 +1109,7 @@ export class Game {
     });
     this.snapN = (this.snapN || 0) + 1;
     const pp = this.player?.curPos, tr = this.snapN % 2 ? null : this.traffic.snapshot().filter(c => !pp || Math.hypot(c[3] - pp.x, c[4] - pp.z) < 450); // trafic à 7,5 Hz et seulement à proximité
-    this.net.send({ t: 'snap', v: V, tr, g: { tl: +this.timeLeft.toFixed(1), b: +this.bust.toFixed(2), st: this.state, c: this.coop.serialize(), bn: this.bananas.map(b => [+b.mesh.position.x.toFixed(1), +b.mesh.position.z.toFixed(1)]), sc: Math.round(this.score), tm: +this.time.toFixed(1), rel: this.released ? 1 : 0, w: this.env.weather, tod: this.env.timeOfDay } });
+    this.net.send({ t: 'snap', v: V, tr, g: { tl: +this.timeLeft.toFixed(1), b: +this.bust.toFixed(2), st: this.state, c: this.coop.serialize(), bn: this.bananas.map(b => [+b.mesh.position.x.toFixed(1), +b.mesh.position.z.toFixed(1)]), sc: Math.round(this.score), tm: +this.time.toFixed(1), wa: this.wanted || 0, hl: this.heliOn && this.heli.visible ? [this.heli.position.x, this.heli.position.y, this.heli.position.z].map(x => +x.toFixed(1)) : null, pr: this.cartons.slice(-24).map(c => [c.kind === 'cheese' ? 1 : 0, ...[c.mesh.position.x, c.mesh.position.y, c.mesh.position.z, c.mesh.quaternion.x, c.mesh.quaternion.y, c.mesh.quaternion.z, c.mesh.quaternion.w].map(x => +x.toFixed(2))]), rel: this.released ? 1 : 0, w: this.env.weather, tod: this.env.timeOfDay } });
   }
 
   // ---------- coop en ligne côté invité : on affiche le monde de l'hôte ----------
@@ -1153,7 +1155,14 @@ export class Game {
       for (const [uid, v] of this.byUid) if (!seen.has(uid)) { v.dispose(); this.byUid.delete(uid); this.vehicles = this.vehicles.filter(x => x !== v); this.police = this.police.filter(p => p.v !== v); }
       if (m.tr) this.traffic.applySnapshot(m.tr);
       const g = m.g;
-      this.timeLeft = g.tl; this.bust = g.b; this.score = g.sc; this.released = !!g.rel;
+      this.timeLeft = g.tl; this.bust = g.b; this.score = g.sc; this.released = !!g.rel; this.wanted = g.wa;
+      // hélicoptère de l'hôte
+      if (g.hl) { this.heliOn = true; this.heli.visible = true; if (!this.heliT) this.heli.position.set(...g.hl); this.heliTarget = g.hl; } else if (this.heliOn) { this.heliOn = false; this.heli.visible = false; }
+      // cartons et fromages
+      this.mirrorProps ||= [];
+      while (this.mirrorProps.length < (g.pr || []).length) { const m = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, 0.6), this._boxMat ||= new THREE.MeshStandardMaterial({ color: 0xa8814f, roughness: 0.9 })); m.castShadow = true; this.scene.add(m); this.mirrorProps.push(m); }
+      while (this.mirrorProps.length > (g.pr || []).length) this.scene.remove(this.mirrorProps.pop());
+      (g.pr || []).forEach((a, i) => { const m = this.mirrorProps[i]; if (a[0] && !m.userData.cheese) { m.geometry = new THREE.CylinderGeometry(0.45, 0.45, 0.36, 18); m.material = this._cheeseMat ||= new THREE.MeshStandardMaterial({ color: 0xf0c040, roughness: 0.6 }); m.userData.cheese = true; } m.position.set(a[1], a[2], a[3]); m.quaternion.set(a[4], a[5], a[6], a[7]); });
       if (g.st !== this.state && g.st !== 'end') this.setState(g.st);
       this.coop.apply(g.c);
       if (this.env.weather !== g.w) this.env.setWeather(g.w);
@@ -1186,6 +1195,7 @@ export class Game {
     }
     // rendu du reste (sans physique)
     const savedFixed = this.fixed;
+    this.heliStep(dt);
     this.renderWorld(alpha, dt);
     inp.endFrame();
   }

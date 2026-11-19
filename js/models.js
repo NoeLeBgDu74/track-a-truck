@@ -200,6 +200,37 @@ export function buildPoliceCar(def, paintColor, opts = {}) {
   return { group: g, lights: { red, blue, L1, L2 }, roofH };
 }
 
+// ---------- moto de police (avec motard) ----------
+export function buildPoliceMoto(def) {
+  const b = new Builder(), wht = 0xf2f2f2, blu = 0x173c8c, blk = 0x161618;
+  b.box('body', blk, 0.18, 0.18, 1.3, 0, 0.5, 0);                                   // cadre
+  b.box('paint', wht, 0.34, 0.24, 0.5, 0, 0.82, 0.28, { r: 0.08 });                 // réservoir
+  b.box('paint', wht, 0.5, 0.42, 0.42, 0, 0.82, 0.62, { r: 0.1 });                  // carénage
+  b.box('paint', blu, 0.52, 0.08, 0.44, 0, 0.72, 0.62);
+  b.wedge('glass', 0, 0.42, 0.34, 0.12, 0, 1.18, 0.74, 0.1);                         // bulle
+  b.box('body', 0x2a2b2e, 0.3, 0.1, 0.55, 0, 0.86, -0.25, { r: 0.04 });             // selle
+  for (const sx of [-1, 1]) b.box('paint', wht, 0.16, 0.36, 0.5, sx * 0.3, 0.6, -0.52, { r: 0.05 }); // valises
+  b.box('body', blk, 0.62, 0.03, 0.03, 0, 1.05, 0.5);                                // guidon
+  b.box('head', 0, 0.16, 0.1, 0.03, 0, 0.82, 0.84);
+  b.box('tail', 0, 0.16, 0.06, 0.03, 0, 0.72, -0.82);
+  b.cyl('chrome', 0xc0c4c8, 0.04, 0.05, 0.6, 0.14, 0.42, -0.5, { rx: Math.PI / 2, seg: 8 }); // échappement
+  // motard
+  b.box('body', 0x1d2f5a, 0.4, 0.55, 0.26, 0, 1.25, -0.12, { r: 0.08, rx: 0.35 });
+  b.box('body', 0xf5d020, 0.42, 0.06, 0.28, 0, 1.28, -0.11, { rx: 0.35 });
+  b.box('body', 0xf2f2f2, 0.27, 0.28, 0.3, 0, 1.66, 0.02, { r: 0.12 });             // casque
+  b.box('glass', 0, 0.22, 0.09, 0.04, 0, 1.66, 0.17);
+  for (const sx of [-1, 1]) { b.box('body', 0x1d2f5a, 0.1, 0.45, 0.1, sx * 0.22, 1.18, 0.22, { rx: -0.9 }); b.box('body', 0x2a2a30, 0.13, 0.5, 0.14, sx * 0.17, 0.75, -0.02, { rx: -0.6 }); }
+  const g = b.build();
+  const red = new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff1020, emissiveIntensity: 0.2 });
+  const blue = new THREE.MeshStandardMaterial({ color: 0x000a40, emissive: 0x1050ff, emissiveIntensity: 0.2 });
+  const L1 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.06), blue); L1.position.set(0.18, 1.0, 0.86);
+  const L2 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.06), red); L2.position.set(-0.18, 1.0, 0.86);
+  const L3 = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.3, 0.06), blue); L3.position.set(0.24, 1.2, -0.7);
+  const L4 = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.3, 0.06), red); L4.position.set(-0.24, 1.2, -0.7);
+  g.add(L1, L2, L3, L4);
+  return { group: g, lights: { red, blue, L1, L2 }, roofH: 1.05 };
+}
+
 // ---------- camions joueurs ----------
 function truckCab(b, o) {
   const { w, front, paint, cabLen = 2.3, floor = 1.05, top = 3.35 } = o;

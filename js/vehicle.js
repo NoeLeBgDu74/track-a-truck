@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { VEHICLES, clamp, worldToRoad, upLevel, settings } from './config.js';
 import { canvasTex } from './models.js';
-import { buildPoliceCar, buildPlayerTruck, buildTrailer, makeWheel, MAT } from './models.js';
+import { buildPoliceCar, buildPlayerTruck, buildTrailer, makeWheel, buildPoliceMoto, MAT } from './models.js';
 import { Interior } from './interior.js';
 
 const _q = new THREE.Quaternion(), _f = new THREE.Vector3(), _u = new THREE.Vector3(), _r = new THREE.Vector3(), _v = new THREE.Vector3();
@@ -13,6 +13,7 @@ function colliderSet(def) {
   const L = def.len / 2, w = def.w / 2;
   switch (def.id) {
     case 'sedan': case 'wagon': return [[w, 0.32, L - 0.02, 0, 0.62, 0, 0.8], [w * 0.84, 0.26, L * 0.45, 0, 1.18, -0.2, 0.2]];
+    case 'moto': return [[w * 0.5, 0.3, L, 0, 0.62, 0, 1]];
     case 'suv': return [[w, 0.42, L - 0.02, 0, 0.82, 0, 0.8], [w * 0.86, 0.3, L * 0.62, 0, 1.5, -0.25, 0.2]];
     case 'delivery': return [[w * 0.9, 0.3, L, 0, 0.85, 0, 0.55], [w, 1.1, 1.0, 0, 2.15, L - 1.0, 0.15], [w, 1.28, 2.55, 0, 2.15, -L + 2.6, 0.3]];
     case 'flatbed': return [[w * 0.9, 0.3, L, 0, 0.85, 0, 0.55], [w, 1.15, 1.1, 0, 2.2, L - 1.1, 0.15], [w, 0.75, 3.3, 0, 1.9, -L + 3.4, 0.3]];
@@ -67,7 +68,8 @@ export class Vehicle {
     // visuel
     const paint = opts.paint;
     let model;
-    if (this.isPolice) model = buildPoliceCar(def, paint);
+    if (def.moto) model = buildPoliceMoto(def);
+    else if (this.isPolice) model = buildPoliceCar(def, paint);
     else model = buildPlayerTruck(def, paint);
     this.model = model;
     this.mesh = new THREE.Group();
@@ -77,7 +79,7 @@ export class Vehicle {
     this.headMat = model.group.getObjectByName('head')?.material;
     if (this.headMat === MAT.head) { this.headMat = MAT.head.clone(); model.group.getObjectByName('head').material = this.headMat; }
     if (this.tailMat === MAT.tail) { this.tailMat = MAT.tail.clone(); model.group.getObjectByName('tail').material = this.tailMat; }
-    this.wheels = this.wheelDefs.map(w => { const m = makeWheel(def.wheelR, def.team === 'truck' ? 0.38 : 0.26); this.mesh.add(m); return m; });
+    this.wheels = this.wheelDefs.map(w => { const m = makeWheel(def.wheelR, def.team === 'truck' ? 0.38 : def.moto ? 0.16 : 0.26); this.mesh.add(m); return m; });
     game.scene.add(this.mesh);
 
     // volant + essuie-glaces (vue intérieure)
@@ -95,6 +97,7 @@ export class Vehicle {
       this.mesh.add(piv); this.wipers.push(inner);
     }
     this.wipeT = 0; this.wiping = false;
+    if (def.moto) { sw.visible = false; this.wipers.forEach(w => w.parent.visible = false); }
 
     // remorque
     if (def.trailer) this.makeTrailer(x, z, yaw);
@@ -254,7 +257,7 @@ export class Vehicle {
       b.applyImpulse({ x: 0, y: -this.body.mass() * 0.004 * vv * vv * dt, z: 0 }, true);
       const rollA = _r.y; // inclinaison latérale
       const pitchA = _f.y;
-      const k = this.body.mass() * (def.team === 'truck' ? 40 : 18) * dt;
+      const k = this.body.mass() * (def.team === 'truck' ? 40 : def.moto ? 70 : 18) * dt;
       b.applyTorqueImpulse({ x: _f.x * rollA * k, y: 0, z: _f.z * rollA * k }, true);
       b.applyTorqueImpulse({ x: -_r.x * pitchA * k * 0.5, y: 0, z: -_r.z * pitchA * k * 0.5 }, true);
     }
@@ -324,6 +327,7 @@ export class Vehicle {
     this.pos.lerpVectors(this.prevPos, this.curPos, alpha);
     this.quat.slerpQuaternions(this.prevQuat, this.curQuat, alpha);
     this.mesh.position.copy(this.pos); this.mesh.quaternion.copy(this.quat);
+    if (this.def.moto) { this.lean = (this.lean || 0) + (-this.steer * clamp(Math.abs(this.speed) / 18) * 1.4 - (this.lean || 0)) * 0.15; this.mesh.rotateZ(this.lean); }
     const vc = this.vc;
     this.wheelDefs.forEach((w, i) => {
       const m = this.wheels[i];

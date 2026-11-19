@@ -95,6 +95,13 @@ export const VEHICLES = {
     color: 0x2f62c8, accent: 0xf2f2f2, cam: { dist: 7.6, h: 2.35 },
   },
 };
+VEHICLES.moto = {
+  id: 'moto', team: 'police', name: 'Moto de police', desc: 'Motard de l’autoroute : agile et très rapide.', moto: true,
+  mass: 330, power: 120e3, fmax: 9, vmax: 225, steer: 0.5, len: 2.2, w: 0.8, h: 1.45,
+  wheelR: 0.32, wheels: [[0.13, 0.74], [-0.13, 0.74], [0.13, -0.74], [-0.13, -0.74]], driveRear: true,
+  susp: { k: 42, travel: 0.16, rest: 0.3 }, grip: 2.0, cab: { y: 1.5, z: -0.25, x: 0, belt: 0.95, wz: 0.4 }, gears: 6, idle: 1200, red: 9500, engine: 'v6',
+  color: 0xf2f2f2, accent: 0x173c8c, cam: { dist: 5.5, h: 1.9 },
+};
 export const TEAM_VEHICLES = { truck: ['delivery', 'flatbed', 'semi'], police: ['sedan', 'suv', 'wagon'] };
 
 export const PAINTS = [0xf2f2ee, 0xb0161e, 0x1f5fa8, 0x1b2433, 0x2b7a3d, 0xe0a020, 0x6b2a8c, 0x3a3d42, 0xd8462b, 0x2f62c8];
