@@ -20,6 +20,8 @@ export const ACTIONS = [
   { k: 'F', code: 'KeyF', id: 'smoke', icon: '💨', name: 'Fumigène', tip: 'Nuage de fumée : la police ne voit plus rien' },
   { k: 'G', code: 'KeyG', id: 'paint', icon: '🎨', name: 'Peinture', tip: 'Pot de peinture sur le pare-brise de la police' },
   { k: 'T', code: 'KeyT', id: 'cones', icon: '🚧', name: 'Cônes', tip: 'Semer des cônes de chantier sur la route' },
+  { k: 'Y', code: 'KeyY', id: 'crackers', icon: '🧨', name: 'Pétards', tip: 'Pétards : la police sursaute et fait un écart' },
+  { k: 'U', code: 'KeyU', id: 'detour', icon: '🪧', name: 'Déviation', tip: 'Faux panneau « Déviation » : la police se trompe de route' },
 ];
 const STATIONS = [
   { id: 'off', name: 'Radio éteinte' },
@@ -49,7 +51,7 @@ export class Coop {
     this.humans = opts.humans || [true, true];        // qui est humain (sinon IA)
     this.online = !!opts.online;
     this.chars = this.names.map((n, i) => ({ name: n, fatigue: 25 + i * 10, faim: 30 + i * 8, envie: 10, moral: 70, asleep: 0, micro: 0 }));
-    this.driver = 0; this.fuel = 100; this.bananas = 5; this.oil = 3; this.nails = 2; this.smoke = 2; this.paint = 2; this.cones = 2; this.sandwiches = 3; this.station = 0; this.cbCd = 0;
+    this.driver = 0; this.fuel = 100; this.bananas = 5; this.oil = 3; this.nails = 2; this.smoke = 2; this.paint = 2; this.cones = 2; this.crackers = 2; this.detour = 1; this.sandwiches = 3; this.station = 0; this.cbCd = 0;
     this.gag = null; this.gagT = 18; this.prep = null; this.swapT = 0; this.jitter = 0; this.slapN = 0; this.pushing = false;
     this.aiT = 0; this.joltT = 0; this.jolt = 0; this.hicT = 0; this.lastSpeech = 0; this.score = 0;
   }
@@ -75,7 +77,7 @@ export class Coop {
     // plein + ravitaillement à l'aire de repos (sous l'auvent de la station)
     const ra = REST_AREAS.find(r => v.road.s > r.s0 + 60 && v.road.s < r.s1 + 40 && v.road.d < -30 && v.road.d > -55);
     if (ra && v.kmh < 4) {
-      if (this.fuel < 99) { this.fuel = Math.min(100, this.fuel + 18 * dt); this.fuelMsg = false; if (!this.fillMsg) { this.fillMsg = true; this.say('⛽ Le plein se fait… et ' + c.name + ' achète 3 sandwichs et 5 bananes.'); this.sandwiches = 3; this.bananas = 5; this.oil = 3; this.nails = 2; this.smoke = 2; this.paint = 2; this.cones = 2; } }
+      if (this.fuel < 99) { this.fuel = Math.min(100, this.fuel + 18 * dt); this.fuelMsg = false; if (!this.fillMsg) { this.fillMsg = true; this.say('⛽ Le plein se fait… et ' + c.name + ' achète 3 sandwichs et 5 bananes.'); this.sandwiches = 3; this.bananas = 5; this.oil = 3; this.nails = 2; this.smoke = 2; this.paint = 2; this.cones = 2; this.crackers = 2; this.detour = 1; } }
       for (const ch of this.chars) if (ch.envie > 30) { ch.envie = 0; this.say(`🚻 ${ch.name} : « Ahhhh… ça va mieux. »`); }
     } else this.fillMsg = false;
 
@@ -213,11 +215,11 @@ export class Coop {
         this.say(`📢 ${c.name} à la CB : ${lies[Math.floor(Math.random() * lies.length)]}`);
         break;
       case 'swap': this.swap(); break;
-      case 'oil': case 'nails': case 'smoke': case 'paint': case 'cones': {
-        const left = this[id]; if (left <= 0) return this.say(`${c.name} : « Plus ${{ oil: 'd’huile', nails: 'de clous', smoke: 'de fumigènes', paint: 'de peinture', cones: 'de cônes' }[id]} ! Faut s’arrêter à une aire. »`);
+      case 'oil': case 'nails': case 'smoke': case 'paint': case 'cones': case 'crackers': case 'detour': {
+        const left = this[id]; if (left <= 0) return this.say(`${c.name} : « Plus ${{ oil: 'd’huile', nails: 'de clous', smoke: 'de fumigènes', paint: 'de peinture', cones: 'de cônes', crackers: 'de pétards', detour: 'de panneaux' }[id]} ! Faut s’arrêter à une aire. »`);
         if ((this.gadCd || 0) > g.time) return; this.gadCd = g.time + 1.2; this[id]--;
         g.dropGadget(id, v);
-        this.say({ oil: `🛢️ ${c.name} vide un bidon d’huile par la fenêtre. Glissez bien, messieurs !`, nails: `📌 ${c.name} sème une poignée de clous derrière le camion.`, smoke: `💨 ${c.name} dégoupille un fumigène. On ne voit plus RIEN derrière !`, paint: `🎨 ${c.name} balance un pot de peinture rose sur la police !`, cones: `🚧 ${c.name} jette des cônes de chantier par la fenêtre !` }[id]);
+        this.say({ oil: `🛢️ ${c.name} vide un bidon d’huile par la fenêtre. Glissez bien, messieurs !`, nails: `📌 ${c.name} sème une poignée de clous derrière le camion.`, smoke: `💨 ${c.name} dégoupille un fumigène. On ne voit plus RIEN derrière !`, paint: `🎨 ${c.name} balance un pot de peinture rose sur la police !`, cones: `🚧 ${c.name} jette des cônes de chantier par la fenêtre !`, crackers: `🧨 ${c.name} allume des pétards et les lance derrière ! PAN PAN PAN !`, detour: `🪧 ${c.name} plante un faux panneau « DÉVIATION » sur la route. Génie.` }[id]);
         break;
       }
       case 'roof':
@@ -274,7 +276,7 @@ export class Coop {
     const pol = g.nearestPolice(v.curPos);
     if (pol.v && pol.d < 35 && pol.v.road.s < v.road.s && this.bananas > 0 && Math.random() < 0.5) return this.action('banana', 'ai');
     if (pol.v && pol.d < 120 && this.cbCd <= 0 && Math.random() < 0.15) return this.action('cb', 'ai');
-    if (pol.v && pol.d < 45 && pol.v.road.s < v.road.s && Math.random() < 0.25) { const opt = ['oil', 'nails', 'smoke', 'paint', 'cones'].filter(k => this[k] > 0); if (opt.length) return this.action(opt[Math.floor(Math.random() * opt.length)], 'ai'); }
+    if (pol.v && pol.d < 45 && pol.v.road.s < v.road.s && Math.random() < 0.25) { const opt = ['oil', 'nails', 'smoke', 'paint', 'cones', 'crackers', 'detour'].filter(k => this[k] > 0); if (opt.length) return this.action(opt[Math.floor(Math.random() * opt.length)], 'ai'); }
     if (d.fatigue > 88 && this.cop.fatigue < 40 && v.kmh < 12) return this.action('swap', 'ai');
   }
 
@@ -289,7 +291,7 @@ export class Coop {
     const myRole = this.game.coopMyRole?.() ?? 'cop';
     $('coop-chars').innerHTML = ch(this.chars[0], 0) + ch(this.chars[1], 1) +
       `<div class="cc res"><div class="cb"><span>⛽ Gazole</span>${bar(this.fuel, this.fuel < 20 ? '#ff3b2f' : '#3fd07a')}</div><div class="cinv">🥪 ${this.sandwiches} · 🍌 ${this.bananas} · 🛢️ ${this.oil} · 📌 ${this.nails} · 💨 ${this.smoke}${this.roof ? ' · 📦 ' + this.boxes : ''} · 📻 ${STATIONS[this.station].id === 'off' ? 'off' : STATIONS[this.station].id}</div>${this.prep ? `<div class="cinv">⏳ ${this.prep.what === 'sandwich' ? 'Sandwich' : 'Café'}…</div>` : ''}</div>`;
-    const cnt = { banana: this.bananas, oil: this.oil, nails: this.nails, smoke: this.smoke, paint: this.paint, cones: this.cones, sandwich: this.sandwiches };
+    const cnt = { banana: this.bananas, oil: this.oil, nails: this.nails, smoke: this.smoke, paint: this.paint, cones: this.cones, crackers: this.crackers, detour: this.detour, sandwich: this.sandwiches };
     const actsHtml = ACTIONS.map(a => `<button class="ca${cnt[a.id] === 0 ? ' empty' : ''}" data-a="${a.id}" title="${a.tip}"><kbd>${a.k}</kbd>${a.icon}<span>${a.name}${a.id === 'cb' && this.cbCd > 0 ? ' ' + Math.ceil(this.cbCd) : ''}${cnt[a.id] != null ? ' ×' + cnt[a.id] : ''}</span></button>`).join('');
     if (actsHtml !== this._acts) { this._acts = actsHtml; $('coop-acts').innerHTML = actsHtml; } // ne reconstruire les boutons que s'ils changent (sinon le clic est perdu)
     $('coop-role').textContent = myRole === 'drv' ? 'Tu CONDUIS — ton pote gère la cabine' : myRole === 'cop' ? 'Tu es COPILOTE — clique les actions (ou touches 1-7)' : 'Coop à 2 sur ce PC : conducteur = clavier ZQSD, copilote = souris / touches 1-7';
@@ -306,11 +308,11 @@ export class Coop {
     $('coop-acts').classList.toggle('roof', !!this.roof);
   }
 
-  serialize() { return { gd: [this.oil, this.nails, this.smoke, this.paint, this.cones], r: this.roof ? 1 : 0, bx: this.boxes || 0, c: this.chars.map(c => [c.fatigue, c.faim, c.envie, c.asleep > 0 ? 1 : 0, c.micro > 0 ? 1 : 0].map(x => +x.toFixed(1))), d: this.driver, f: +this.fuel.toFixed(1), b: this.bananas, sw: this.sandwiches, st: this.station, g: this.gag?.id || '', s: +this.swapT.toFixed(2), p: this.prep?.what || '', cb: Math.ceil(this.cbCd) }; }
+  serialize() { return { gd: [this.oil, this.nails, this.smoke, this.paint, this.cones, this.crackers, this.detour], r: this.roof ? 1 : 0, bx: this.boxes || 0, c: this.chars.map(c => [c.fatigue, c.faim, c.envie, c.asleep > 0 ? 1 : 0, c.micro > 0 ? 1 : 0].map(x => +x.toFixed(1))), d: this.driver, f: +this.fuel.toFixed(1), b: this.bananas, sw: this.sandwiches, st: this.station, g: this.gag?.id || '', s: +this.swapT.toFixed(2), p: this.prep?.what || '', cb: Math.ceil(this.cbCd) }; }
   apply(o) {
     o.c.forEach((a, i) => Object.assign(this.chars[i], { fatigue: a[0], faim: a[1], envie: a[2], asleep: a[3] ? 1 : 0, micro: a[4] ? 1 : 0 }));
     if (o.st !== this.station) this.game.audio?.music?.(STATIONS[o.st].id);
-    this.roof = !!o.r; this.boxes = o.bx; if (o.gd) [this.oil, this.nails, this.smoke, this.paint, this.cones] = o.gd;
+    this.roof = !!o.r; this.boxes = o.bx; if (o.gd) [this.oil, this.nails, this.smoke, this.paint, this.cones, this.crackers, this.detour] = o.gd;
     Object.assign(this, { driver: o.d, fuel: o.f, bananas: o.b, sandwiches: o.sw, station: o.st, swapT: o.s, cbCd: o.cb });
     this.gag = o.g ? { id: o.g, t: 0 } : null; this.prep = o.p ? { what: o.p, t: 1 } : null;
   }

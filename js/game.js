@@ -747,6 +747,19 @@ export class Game {
     const back = v.trailer ? _v.set(0, 0, -v.def.trailer.len + 0.5).applyQuaternion(v.trailer.curQuat).add(v.trailer.curPos) : _v.set(0, 0, -v.def.len / 2 - 1).applyQuaternion(v.curQuat).add(v.curPos);
     const yaw = v.yaw;
     if (kind === 'smoke') { this.smokeT = { t: 6, v }; return; }
+    if (kind === 'crackers') { // pétards : étincelles + détonations, la police proche sursaute
+      for (let i = 0; i < 6; i++) setTimeout(() => { this.audio.crash(back, 2.5); for (let k = 0; k < 10; k++) this.particles.emit(back.x + (Math.random() - 0.5) * 4, 0.4, back.z + (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 6, Math.random() * 5, (Math.random() - 0.5) * 6, 0.35, 0.1, 0, 0xffd040, 1); }, i * 160);
+      for (const p of this.police) if (p.v !== v && p.v.curPos.distanceTo(back) < 45) { p.v.blindT = 1.5; p.v.body.applyTorqueImpulse({ x: 0, y: (Math.random() < 0.5 ? -1 : 1) * p.v.mass * 1.2, z: 0 }, true); if (p.v !== this.player) this.say('crack' + p.v.unit, `${p.v.name} : « On nous TIRE dessus ?! Ah non… des pétards. »`, 6); else this.camRig.shake = 1; }
+      return;
+    }
+    if (kind === 'detour') { // faux panneau : la police le croit et part sur la BAU au ralenti
+      const sign = new THREE.Group(); const pan = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.1), new THREE.MeshStandardMaterial({ color: 0xffffff, map: this._detTex ||= (() => { const c = document.createElement('canvas'); c.width = 256; c.height = 176; const g2 = c.getContext('2d'); g2.fillStyle = '#f0b020'; g2.fillRect(0, 0, 256, 176); g2.fillStyle = '#111'; g2.font = '900 40px Arial'; g2.textAlign = 'center'; g2.fillText('DÉVIATION', 128, 80); g2.font = '900 60px Arial'; g2.fillText('➜', 128, 150); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })(), side: THREE.DoubleSide }));
+      pan.position.y = 1.4; sign.add(pan); const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.4, 0.06), this.world.postMat); leg.position.y = 0.7; sign.add(leg);
+      sign.position.set(back.x, 0, back.z); sign.rotation.y = v.yaw; this.scene.add(sign); (this.slicks ||= []).push({ kind: 'detour', mesh: sign, x: back.x, z: back.z, t: 0, r: 0, owner: v });
+      for (const p of this.police) if (p.ai && p.v.road.s < v.road.s && v.road.s - p.v.road.s < 250) { p.v.blindT = 8; p.ai.lane = 3; }
+      this.say('detour', 'Unité 2 : « Une déviation ? Bon… je prends la bande d’arrêt d’urgence. »', 10);
+      return;
+    }
     if (kind === 'cones') { for (let i = 0; i < 4; i++) this.spawnProp('cone', new THREE.Vector3(back.x + (Math.random() - 0.5) * 3, 1.2, back.z + (Math.random() - 0.5) * 3), { x: v.lastV?.x * 0.6 || 0, y: 1.5, z: v.lastV?.z * 0.6 || 0 }); return; }
     if (kind === 'paint') {
       const tgt = this.police.filter(p => p.v !== v && !p.v.disabled && p.v.curPos.distanceTo(back) < 60).sort((a, b) => a.v.curPos.distanceTo(back) - b.v.curPos.distanceTo(back))[0]?.v || (this.team === 'police' && this.player !== v && this.player.curPos.distanceTo(back) < 60 ? this.player : null);
@@ -1040,12 +1053,12 @@ export class Game {
     if (this.mission?.obj === 'fragile') this.hud.cargo?.(this.cargo);
     // le suspect IA se défend avec des gadgets (quantité limitée)
     if (this.team === 'police' && truck && this.released) {
-      this.fugGad ||= { oil: 2, nails: 2, smoke: 1, paint: 1, cones: 1, cd: 20 };
+      this.fugGad ||= { oil: 2, nails: 2, smoke: 1, paint: 1, cones: 1, crackers: 1, cd: 20 };
       const fg = this.fugGad; fg.cd -= dt;
       const chaser = this.police.find(p => p.v.road.s < truck.road.s && truck.road.s - p.v.road.s < 45 && Math.abs(p.v.road.d - truck.road.d) < 6);
       if (chaser && fg.cd <= 0) {
-        const opt = ['oil', 'nails', 'smoke', 'paint', 'cones'].filter(k => fg[k] > 0);
-        if (opt.length) { const k = opt[Math.floor(Math.random() * opt.length)]; fg[k]--; fg.cd = 14 + Math.random() * 10; this.dropGadget(k, truck); this.radio({ oil: 'Attention ! Le suspect déverse de l’huile sur la chaussée !', nails: 'Il sème des clous derrière lui ! Écartez-vous !', smoke: 'Fumigène ! Visibilité nulle derrière le camion !', paint: 'Il nous a jeté de la peinture sur le pare-brise !', cones: 'Il sème des cônes de chantier ! Attention !' }[k], 'pol'); }
+        const opt = ['oil', 'nails', 'smoke', 'paint', 'cones', 'crackers'].filter(k => fg[k] > 0);
+        if (opt.length) { const k = opt[Math.floor(Math.random() * opt.length)]; fg[k]--; fg.cd = 14 + Math.random() * 10; this.dropGadget(k, truck); this.radio({ oil: 'Attention ! Le suspect déverse de l’huile sur la chaussée !', nails: 'Il sème des clous derrière lui ! Écartez-vous !', smoke: 'Fumigène ! Visibilité nulle derrière le camion !', paint: 'Il nous a jeté de la peinture sur le pare-brise !', cones: 'Il sème des cônes de chantier ! Attention !', crackers: 'Des détonations ! Ah… ce sont des pétards.' }[k], 'pol'); }
       }
     }
     if (this.team === 'police' && pl.disabled) return this.finish(false, 'Véhicule hors service', 'Votre voiture de police est trop endommagée.');
@@ -1264,7 +1277,7 @@ export class Game {
     });
     this.snapN = (this.snapN || 0) + 1;
     const pp = this.player?.curPos, tr = this.snapN % 2 ? null : this.traffic.snapshot().filter(c => !pp || Math.hypot(c[3] - pp.x, c[4] - pp.z) < 450); // trafic à 7,5 Hz et seulement à proximité
-    this.net.send({ t: 'snap', v: V, tr, g: { tl: +this.timeLeft.toFixed(1), b: +this.bust.toFixed(2), st: this.state, c: this.coop.serialize(), bn: this.bananas.map(b => [+b.mesh.position.x.toFixed(1), +b.mesh.position.z.toFixed(1)]), sc: Math.round(this.score), tm: +this.time.toFixed(1), wa: this.wanted || 0, sl: (this.slicks || []).map(sl => [sl.kind === 'oil' ? 0 : 1, +sl.x.toFixed(1), +sl.z.toFixed(1), +sl.owner.yaw.toFixed(2)]), sm: this.smokeT?.t > 0 ? 1 : 0, hl: this.heliOn && this.heli.visible ? [this.heli.position.x, this.heli.position.y, this.heli.position.z].map(x => +x.toFixed(1)) : null, pr: this.cartons.slice(-24).map(c => [c.kind === 'cheese' ? 1 : 0, ...[c.mesh.position.x, c.mesh.position.y, c.mesh.position.z, c.mesh.quaternion.x, c.mesh.quaternion.y, c.mesh.quaternion.z, c.mesh.quaternion.w].map(x => +x.toFixed(2))]), rel: this.released ? 1 : 0, w: this.env.weather, tod: this.env.timeOfDay } });
+    this.net.send({ t: 'snap', v: V, tr, g: { tl: +this.timeLeft.toFixed(1), b: +this.bust.toFixed(2), st: this.state, c: this.coop.serialize(), bn: this.bananas.map(b => [+b.mesh.position.x.toFixed(1), +b.mesh.position.z.toFixed(1)]), sc: Math.round(this.score), tm: +this.time.toFixed(1), wa: this.wanted || 0, sl: (this.slicks || []).filter(sl => sl.kind !== 'detour').map(sl => [sl.kind === 'oil' ? 0 : 1, +sl.x.toFixed(1), +sl.z.toFixed(1), +sl.owner.yaw.toFixed(2)]), sm: this.smokeT?.t > 0 ? 1 : 0, hl: this.heliOn && this.heli.visible ? [this.heli.position.x, this.heli.position.y, this.heli.position.z].map(x => +x.toFixed(1)) : null, pr: this.cartons.slice(-24).map(c => [c.kind === 'cheese' ? 1 : 0, ...[c.mesh.position.x, c.mesh.position.y, c.mesh.position.z, c.mesh.quaternion.x, c.mesh.quaternion.y, c.mesh.quaternion.z, c.mesh.quaternion.w].map(x => +x.toFixed(2))]), rel: this.released ? 1 : 0, w: this.env.weather, tod: this.env.timeOfDay } });
   }
 
   // ---------- coop en ligne côté invité : on affiche le monde de l'hôte ----------
