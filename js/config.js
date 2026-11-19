@@ -112,6 +112,7 @@ export const TRAFFIC_TYPES = [
   { kind: 'hatch', len: 3.9, w: 1.75, h: 1.5, mass: 1150, v0: [29, 36], weight: 22, trucks: false },
   { kind: 'van', len: 5.4, w: 2.0, h: 2.4, mass: 2600, v0: [27, 33], weight: 14, trucks: false },
   { kind: 'truck', len: 6.2, w: 2.5, h: 3.6, mass: 9000, artic: true, tlen: 13.4, tmass: 20000, v0: [23, 25.5], weight: 12, trucks: true },
+  { kind: 'tractor', len: 4.2, w: 2.2, h: 2.9, mass: 4500, v0: [7, 9], weight: 0, trucks: true, local: true },
   { kind: 'bus', len: 12.5, w: 2.55, h: 3.6, mass: 15000, v0: [25, 27.5], weight: 6, trucks: true },
 ];
 

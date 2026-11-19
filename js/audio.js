@@ -221,6 +221,7 @@ export class Audio {
     }
     this._rot.gain.setTargetAtTime(g, this.ctx.currentTime, 0.2);
   }
+  hiss() { this.oneShot(null, (C, dest, t) => { const s = C.createBufferSource(); s.buffer = this.noiseBuf; const f = C.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 2500; const g = C.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9); s.connect(f); f.connect(g); g.connect(dest); s.start(t, Math.random()); s.stop(t + 1); }); }
   tick() { this.oneShot(null, (C, dest, t) => { const o = C.createOscillator(); o.type = 'square'; o.frequency.value = 1800; const g = C.createGain(); g.gain.setValueAtTime(0.03, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.03); o.connect(g); g.connect(dest); o.start(t); o.stop(t + 0.04); }); }
   thud(pos) { this.oneShot(pos, (C, dest, t) => { const o = C.createOscillator(); o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(50, t + 0.2); const g = C.createGain(); g.gain.setValueAtTime(0.4, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.25); o.connect(g); g.connect(dest); o.start(t); o.stop(t + 0.3); }); }
 }

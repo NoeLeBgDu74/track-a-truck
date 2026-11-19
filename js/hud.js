@@ -1,5 +1,5 @@
 // Interface en jeu : compteur, compte-tours, GPS, minicarte, chrono, état du véhicule, messages radio
-import { clamp, fmtTime, roadToWorld, roadYaw, DEST_S, DEST, EXIT_GAP, worldToRoad } from './config.js';
+import { clamp, fmtTime, roadToWorld, roadYaw, DEST_S, DEST, EXIT_GAP, worldToRoad, D77, EXIT15 } from './config.js';
 
 const $ = id => document.getElementById(id);
 const _p = { x: 0, z: 0 };
@@ -158,6 +158,16 @@ export class HUD {
     for (const [w, col] of [[34 * z, 'rgba(120,128,140,0.85)'], [2 * z + 0.6, 'rgba(255,255,255,0.35)']]) {
       c.strokeStyle = col; c.lineWidth = w; c.lineCap = 'butt'; c.beginPath();
       for (let s = s0 - 260 / z * 0.6; s < s0 + 300 / z * 0.6; s += 8) { roadToWorld(s, 0, _p); const [x, y] = T(_p.x, _p.z); s === s0 ? c.moveTo(x, y) : c.lineTo(x, y); }
+      c.stroke();
+    }
+    // départementale D77 + bretelle de la sortie 15
+    if (s0 > EXIT15[0] - 900 && s0 < D77.s1 + 900) {
+      c.strokeStyle = 'rgba(200,180,120,0.8)'; c.lineWidth = Math.max(2, 7 * z); c.beginPath(); let first = true;
+      for (let sv = Math.max(EXIT15[0], s0 - 500); sv < Math.min(DEST.s0, s0 + 600); sv += 10) {
+        const k = clamp((sv - EXIT15[0]) / (D77.s0 - EXIT15[0])), e = k * k * (3 - 2 * k);
+        const dv = sv < D77.s0 ? -15.5 + (D77.d + 15.5) * e : sv < D77.s1 ? D77.d : D77.d + (sv - D77.s1) / (DEST.s0 - D77.s1) * (D77.d + 70);
+        roadToWorld(sv, dv, _p); const [x, y] = T(_p.x, _p.z); first ? c.moveTo(x, y) : c.lineTo(x, y); first = false;
+      }
       c.stroke();
     }
     // trafic

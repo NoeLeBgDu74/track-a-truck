@@ -419,6 +419,17 @@ export function buildTraffic(type, r) {
     for (const sx of [-1, 1]) for (const z of [-8.4, -9.7, -11.0]) wheel2(sx * (w / 2 - 0.25), z);
     const g = b.build(); g.userData.trailer = b2.build();
     return g;
+  } else if (type.kind === 'tractor') { // tracteur agricole (routes de campagne)
+    const col = [0x2b8a3a, 0xc22020, 0x1f5fa8][Math.floor(r() * 3)];
+    b.box('paint', col, 1.0, 0.8, 2.4, 0, 1.2, 0.6, { r: 0.08 });
+    b.box('glass', 0, 1.5, 1.3, 1.3, 0, 2.1, -0.7);
+    b.box('paint', col, 1.6, 0.08, 1.4, 0, 2.8, -0.7);
+    for (const sx of [-1, 1]) for (const zz of [-0.6, -0.8]) b.box('paint', col, 0.06, 1.3, 0.06, sx * 0.75, 2.1, zz - 0.05 + (zz < -0.7 ? -0.5 : 0.55));
+    b.cyl('chrome', 0x8a8e95, 0.05, 0.05, 1.1, 0.35, 2.2, 1.3, { seg: 8 });
+    b.box('head', 0, 0.2, 0.12, 0.05, 0.3, 1.5, 1.82); b.box('head', 0, 0.2, 0.12, 0.05, -0.3, 1.5, 1.82);
+    b.box('orange', 0, 0.15, 0.15, 0.15, 0, 3.0, -0.7);
+    b.box('tail', 0, 0.12, 0.12, 0.05, 0.7, 1.3, -1.45); b.box('tail', 0, 0.12, 0.12, 0.05, -0.7, 1.3, -1.45);
+    for (const sx of [-1, 1]) { b.cyl('body', 0x141414, 0.85, 0.85, 0.5, sx * 0.95, 0.85, -0.9, { rz: Math.PI / 2, seg: 16 }); b.cyl('chrome', 0xd8b020, 0.45, 0.45, 0.52, sx * 0.95, 0.85, -0.9, { rz: Math.PI / 2, seg: 12 }); b.cyl('body', 0x141414, 0.5, 0.5, 0.35, sx * 0.85, 0.5, 1.4, { rz: Math.PI / 2, seg: 14 }); }
   } else { // bus / car
     const col = [0xf0f0ee, 0x1f5fa8, 0x2b7a3d, 0xd8d0b8][Math.floor(r() * 4)];
     b.box('paint', col, w, 2.9, len, 0, 2.05, 0, { r: 0.15 });

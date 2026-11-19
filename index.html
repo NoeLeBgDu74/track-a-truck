@@ -295,6 +295,7 @@ body.touch #speedwrap { transform:scale(.55); transform-origin:left top; top:120
 @media (max-height:760px) { #home .menu { margin-top:18px; gap:6px; } #home .mbtn { padding:9px 16px; font-size:17px; } #home .logo .l1 { font-size:clamp(44px,8vw,96px); } .foot { display:none; } }
 #home { overflow:auto; }
 #menutruck { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:0; }
+#home { cursor:none; } #home button, #home .mbtn { cursor:pointer; }
 #home > *:not(#menutruck) { position:relative; z-index:1; }
 #home .foot { position:absolute; }
 @media (max-width:760px) {

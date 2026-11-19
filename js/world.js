@@ -165,9 +165,23 @@ export class World {
     this.pineGeo = new THREE.ConeGeometry(2.2, 8, 8); this.pineGeo.translate(0, 6.5, 0);
     this.trunkMat = new THREE.MeshStandardMaterial({ color: 0x5a4330, roughness: 1 });
     this.leafMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true });
-    this.wallMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 });
+    const facade = canvasTex(256, 256, (g, w, h) => {
+      g.fillStyle = '#f4efe6'; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 2500; i++) { g.fillStyle = `rgba(120,110,90,${Math.random() * 0.08})`; g.fillRect(Math.random() * w, Math.random() * h, 3, 3); }
+      g.fillStyle = 'rgba(90,80,70,0.25)'; g.fillRect(0, h - 26, w, 26); // soubassement
+      for (const row of [0.22, 0.55]) for (const col of [0.2, 0.5, 0.8]) {
+        if (row > 0.5 && col === 0.5) continue;
+        const x = col * w - 18, y = row * h - 22;
+        g.fillStyle = '#5a7f9a'; g.fillRect(x, y, 36, 46); g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(x + 3, y + 3, 12, 18);
+        g.strokeStyle = '#e8e2d6'; g.lineWidth = 3; g.strokeRect(x, y, 36, 46); g.beginPath(); g.moveTo(x + 18, y); g.lineTo(x + 18, y + 46); g.stroke();
+        g.fillStyle = '#3f6f4a'; g.fillRect(x - 14, y, 12, 46); g.fillRect(x + 38, y, 12, 46); // volets
+      }
+      g.fillStyle = '#6b4a2e'; g.fillRect(w / 2 - 20, h - 86, 40, 86); g.fillStyle = '#c9a050'; g.fillRect(w / 2 + 10, h - 46, 5, 5);
+    });
+    this.wallMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: facade, roughness: 0.85 });
     const roofGeo = new THREE.CylinderGeometry(0.72, 0.72, 1, 3); roofGeo.rotateZ(Math.PI / 2); roofGeo.rotateX(Math.PI / 2); roofGeo.rotateZ(Math.PI / 2);
-    this.roofGeo = new THREE.BufferGeometry().copy(new THREE.ConeGeometry(0.75, 0.45, 4, 1)); this.roofGeo.rotateY(Math.PI / 4); this.roofGeo.scale(1.42, 1, 1.42); this.roofGeo.translate(0, 0.72, 0);
+    // toit à 4 pans : base carrée 1×1 (léger débord) posée à y = 0, hauteur 1 → mise à l'échelle par instance (largeur, hauteur du toit, longueur)
+    this.roofGeo = new THREE.ConeGeometry(Math.SQRT1_2 * 1.1, 1, 4, 1); this.roofGeo.rotateY(Math.PI / 4); this.roofGeo.translate(0, 0.5, 0);
     this.roofMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 });
     this.boxGeo = new THREE.BoxGeometry(1, 1, 1); this.boxGeo.translate(0, 0.5, 0);
     this.coneGeo = new THREE.ConeGeometry(0.2, 0.75, 10); this.coneGeo.translate(0, 0.375, 0);
@@ -502,7 +516,7 @@ export class World {
         const w = 8 + r() * 4, l = 9 + r() * 5, h = 5 + r() * 3;
         q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), roadYaw(sv) + (r() < 0.5 ? 0 : Math.PI / 2));
         m4.compose(pos.set(_p.x, 0, _p.z), q, sc.set(w, h, l)); walls.setMatrixAt(k, m4); walls.setColorAt(k, cl.set([0xefe6d2, 0xe2d4b8, 0xd9cfc0, 0xf3efe6, 0xe8d0b0][k % 5]));
-        m4.compose(pos.set(_p.x, h - 0.72, _p.z), q, sc.set(w, 3.2, l)); roofs.setMatrixAt(k, m4); roofs.setColorAt(k, cl.set([0xa3452d, 0x8e3a26, 0x5a5a5e][k % 3]));
+        m4.compose(pos.set(_p.x, h, _p.z), q, sc.set(w, 2.2 + w * 0.12, l)); roofs.setMatrixAt(k, m4); roofs.setColorAt(k, cl.set([0xa3452d, 0x8e3a26, 0x5a5a5e][k % 3]));
         const yaw = roadYaw(sv);
         this.phys.createCollider(R.ColliderDesc.cuboid(Math.max(w, l) / 2, h / 2, Math.max(w, l) / 2).setTranslation(_p.x, h / 2, _p.z).setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }), c.body);
         k++;
@@ -651,7 +665,7 @@ export class World {
         q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), (r() < 0.5 ? 0 : Math.PI / 2) + r() * 0.2);
         m4.compose(pos.set(_p.x, 0, _p.z), q, sc.set(w, h, l)); walls.setMatrixAt(bi, m4);
         walls.setColorAt(bi, col.set(ind ? [0xb8bcc4, 0x9aa3ad, 0xd0d0cc][bi % 3] : [0xefe6d2, 0xe2d4b8, 0xd9cfc0, 0xf3efe6][bi % 4]));
-        m4.compose(pos.set(_p.x, h - 0.72 * (ind ? 0.2 : 1), _p.z), q, sc.set(w, ind ? 0.4 : 3.2, l)); roofs.setMatrixAt(bi, m4);
+        m4.compose(pos.set(_p.x, h, _p.z), q, sc.set(w, ind ? 0.6 : 2.2 + w * 0.12, l)); roofs.setMatrixAt(bi, m4);
         roofs.setColorAt(bi, col.set(ind ? 0x6a6f78 : [0xa3452d, 0x8e3a26, 0x5a5a5e][bi % 3]));
         bi++;
       }

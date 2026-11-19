@@ -6,7 +6,8 @@
 //   véhicule agressif derrière (laisser passer), écart latéral d'un fou à côté (écart + klaxon)
 // - accidents physiques : la voiture percutée devient un corps dynamique (épave qui glisse et reste sur la route)
 import * as THREE from 'three';
-import { TRAFFIC_TYPES, laneD, roadToWorld, roadYaw, rng, clamp, settings, worldToRoad } from './config.js';
+import { TRAFFIC_TYPES, laneD, roadToWorld, roadYaw, rng, clamp, settings, worldToRoad, D77, VILLAGE } from './config.js';
+const d77D = dir => D77.d - dir * 1.8; // voie de la départementale selon le sens
 import { buildTraffic } from './models.js';
 
 const _p = { x: 0, z: 0 }, _r = { s: 0, d: 0 };
@@ -22,6 +23,14 @@ export class Traffic {
   }
   get target() { return DENS[settings.density] || DENS.normal; }
   pickType() { let x = this.r() * this.totalW; for (const t of TRAFFIC_TYPES) { if ((x -= t.weight) < 0) return t; } return TRAFFIC_TYPES[0]; }
+  // trafic des petites routes : voitures, utilitaires et tracteurs sur la D77
+  spawnLocal(s, dir) {
+    const r = this.r(), type = r < 0.18 ? TRAFFIC_TYPES.find(t => t.kind === 'tractor') : r < 0.35 ? TRAFFIC_TYPES.find(t => t.kind === 'van') : TRAFFIC_TYPES[r < 0.7 ? 0 : 1];
+    const car = this.spawn(s, dir, 0, { type, v: 10 });
+    car.d77 = true; car.d = d77D(dir); car.lane = 0; car.v0 = type.kind === 'tractor' ? 7 + this.r() * 2 : 19 + this.r() * 5;
+    this.kinematics(car, 0); car.prev.copy(car.cur); car.prevYaw = car.curYaw;
+    return car;
+  }
 
   spawn(s, dir, lane, opts = {}) {
     const type = opts.type || this.pickType();
@@ -181,8 +190,10 @@ export class Traffic {
       car.prev.copy(car.cur); car.prevYaw = car.curYaw;
       if (car.trailer) { car.trailer.prev.copy(car.trailer.cur); car.trailer.prevYaw = car.trailer.yaw; }
       if (car.wreck) { this.wreckStep(car, dt); continue; }
+      if (car.broken) { car.v = 0; car.brake = false; this.kinematics(car, dt); continue; }
       let v0 = car.v0 * vFactor;
       car.hazard = Math.max(0, car.hazard - dt);
+      if (car.d77) { if (car.s > VILLAGE.s0 - 40 && car.s < VILLAGE.s1 + 40) v0 = Math.min(v0, 13.5); if (car.s < D77.s0 + 10 || car.s > D77.s1 - 10) { car.dead2 = true; } }
 
       // --- perception ---
       let yieldSiren = null;
@@ -220,7 +231,7 @@ export class Traffic {
 
       // --- changements de voie ---
       car.lcT -= dt;
-      if (!car.lc && car.lcT <= 0) {
+      if (!car.lc && car.lcT <= 0 && !car.d77) {
         car.lcT = 1.0 + this.r() * 2.2;
         const opts = [];
         const minLane = car.type.trucks ? 1 : 0, maxLane = yieldSiren && car.lane === 2 && (car.s - yieldSiren.s) * car.dir < 70 ? 3 : 2;
@@ -259,7 +270,7 @@ export class Traffic {
         if (t >= 1) { car.lane = car.lc.to; car.lc = null; }
         // annule si un véhicule surgit dans l'angle mort au début de la manœuvre
         else if (t < 0.3 && !this.sideClear(car, laneD(car.dir, car.lc.to), obs)) { car.lc = { from: car.lc.to, to: car.lc.from, t: 1 - t, dur: car.lc.dur }; }
-      } else car.d += (laneD(car.dir, car.lane) - car.d) * Math.min(1, dt * 2);
+      } else car.d += ((car.d77 ? d77D(car.dir) - (yieldSiren ? car.dir * 1.2 : 0) : laneD(car.dir, car.lane)) - car.d) * Math.min(1, dt * 2);
       // écart d'évitement si un véhicule fou se rapproche latéralement
       let dodgeT = 0;
       if (sideThreat) {
@@ -278,11 +289,18 @@ export class Traffic {
     const want = this.target;
     for (const car of this.cars) {
       const far = Math.abs(car.s - focusS);
-      if (far > 1150 || (car.wreck && car.wreckT > 60 && far > 250)) this.remove(car);
+      if ((far > 1150 && !car.broken) || (car.wreck && car.wreckT > 60 && far > 250) || (car.dead2 && !car.wreck)) this.remove(car);
     }
     this.cars = this.cars.filter(c => !c.dead);
     let tries = 0;
-    while (this.cars.length < want && tries++ < 3) this.trySpawn(focusS, false);
+    while (this.cars.filter(c => !c.broken && !c.d77).length < want && tries++ < 3) this.trySpawn(focusS, false);
+    if (focusS > D77.s0 - 900 && focusS < D77.s1 + 900) {
+      const loc = this.cars.filter(c => c.d77).length;
+      if (loc < 9 && this.r() < 0.1) {
+        const dir = this.r() < 0.5 ? 1 : -1, s = clamp(focusS + (this.r() < 0.5 ? -1 : 1) * (250 + this.r() * 500), D77.s0 + 30, D77.s1 - 30);
+        if (!this.cars.some(c => c.d77 && Math.abs(c.s - s) < 40 && c.dir === dir)) this.spawnLocal(s, dir);
+      }
+    }
   }
 
   // l'essieu avant suit la voie ; l'essieu arrière est « tiré » (rayon de braquage réaliste), la remorque suit la sellette
@@ -404,6 +422,11 @@ export class Traffic {
       if (car.trailer && !car.wreck) { const ty = car.trailer.yaw; rx = car.trailer.kp.x - Math.sin(ty) * 12.25; rz = car.trailer.kp.z - Math.cos(ty) * 12.25; rsx = Math.cos(ty); rsz = -Math.sin(ty); }
       if (night && !car.wreck) for (const k of [-1, 1]) out.push([[p.x + fx * L + sx * hw * k, y, p.z + fz * L + sz * hw * k], 0xfff2dc, 1.3]);
       if (night || car.brake) for (const k of [-1, 1]) out.push([[rx + rsx * hw * k, y, rz + rsz * hw * k], 0xff2020, car.brake ? 1.2 : 0.6]);
+      if (car.lc && !car.hazard && blink) { // clignotant du côté de la voie visée (+X = gauche du véhicule)
+        const toLeft = (laneD(car.dir, car.lc.to) - laneD(car.dir, car.lc.from)) * car.dir < 0 ? 1 : -1, k = toLeft;
+        out.push([[p.x + fx * L + sx * hw * 1.25 * k, y, p.z + fz * L + sz * hw * 1.25 * k], 0xff9a10, 1.0]);
+        out.push([[rx + rsx * hw * 1.25 * k, y + 0.05, rz + rsz * hw * 1.25 * k], 0xff9a10, 1.0]);
+      }
       if (car.hazard > 0 && blink) for (const k of [-1, 1]) { out.push([[rx + rsx * hw * 1.2 * k, y + 0.1, rz + rsz * hw * 1.2 * k], 0xff9a10, 1.2]); out.push([[p.x + fx * L + sx * hw * 1.2 * k, y, p.z + fz * L + sz * hw * 1.2 * k], 0xff9a10, 1.0]); }
     }
   }

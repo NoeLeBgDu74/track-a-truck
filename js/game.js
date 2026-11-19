@@ -174,6 +174,15 @@ export class Game {
       if (local === 'online') this.hookNetHud();
     }
     this.traffic.populate(ps + 200);
+    // pannes sur la BAU (le camion qui roule sur la bande d'arrêt d'urgence doit les éviter)
+    if (cfg.mode !== 'online' && !cfg.mirror) for (let i = 0; i < 3; i++) {
+      const bs = 900 + r() * 6000; if (TUNNELS.some(([a, b]) => bs > a - 50 && bs < b + 50) || (bs > EXIT15[0] - 100 && bs < EXIT15[1] + 50) || (bs > EXIT_GAP[0] - 100) || REST_AREAS.some(ra => bs > ra.s0 - 80 && bs < ra.s1 + 80)) continue;
+      const car = this.traffic.spawn(bs, 1, 2, { v: 0 }); car.broken = true; car.v0 = 0; car.lane = 3; car.d = SHOULDER_D(1) + 0.3; car.hazard = 1e9;
+      this.traffic.kinematics(car, 0); car.prev.copy(car.cur);
+      const tri = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.05, 3), new THREE.MeshStandardMaterial({ color: 0xff2020, emissive: 0xff2020, emissiveIntensity: 0.6 }));
+      const tp = this.roadPose(bs - 30, SHOULDER_D(1)); tri.position.set(tp.x, 0.35, tp.z); tri.rotation.set(Math.PI / 2, 0, tp.yaw); this.scene.add(tri); this.spikes.push({ s: -1e9, d: 0, w: 0, mesh: tri });
+      const guy = buildPerson(0xf5a020); const gp = this.roadPose(bs + 3, SHOULDER_D(1) - 2.2); guy.position.set(gp.x, 0, gp.z); guy.rotation.y = gp.yaw + 2; this.scene.add(guy); this.spikes.push({ s: -1e9, d: 0, w: 0, mesh: guy });
+    }
     for (const c of this.traffic.cars) if (Math.abs(c.s - ps) < 70) this.traffic.remove(c);
     this.traffic.cars = this.traffic.cars.filter(c => !c.dead);
 
@@ -540,7 +549,11 @@ export class Game {
     this.bananaStep(dt); this.propsStep(dt); this.heliStep(dt);
     if (this.coop && (this.state === 'play')) this.coop.update(dt, pl);
     if (this.state === 'play') { this.rules(dt); this.nearMiss(dt); }
-    if (pl) this.stats.topSpeed = Math.max(this.stats.topSpeed, pl.kmh);
+    if (pl) {
+      this.stats.topSpeed = Math.max(this.stats.topSpeed, pl.kmh);
+      // « pschitt » des freins à air quand le poids lourd s'immobilise
+      if (pl.team === 'truck') { if (pl.kmh > 8) this.airArm = true; if (this.airArm && pl.kmh < 1.5 && pl.brk > 0.1) { this.airArm = false; this.audio.hiss?.(); } }
+    }
     if (this.coop && this.coopKind === 'online') this.sendSnapshot(dt);
     else if (this.mode === 'online') this.net.tick(dt, this.person ? null : pl);
   }
@@ -951,7 +964,7 @@ export class Game {
     if (v === this.player && this.team === 'truck') this.hud.msg('Votre camion est hors d’usage !', 'red');
   }
   onTrafficCrash(car) {
-    if (this.state !== 'play') return;
+    if (this.state !== 'play' || this.mode === 'free' || this.mode === 'online') return;
     const truck = this.targetTruck();
     if (truck && car.cur.distanceTo(truck.curPos) < 30) { this.heat += 6; this.say('civ', 'Le camion a percuté un civil ! Priorité : arrêter ce chauffard.', 15); }
     else this.say('acc', 'Accident signalé, véhicules civils impliqués. Prudence.', 20);
