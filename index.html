@@ -258,6 +258,8 @@ body.coop #mapwrap { bottom:150px; } body.coop #speedwrap { bottom:150px; transf
 #h-cargo i { display:block; height:6px; background:rgba(255,255,255,.1); border-radius:3px; margin-top:5px; overflow:hidden; } #h-cargo b { display:block; height:100%; width:100%; background:#ffd060; }
 #h-net { position:absolute; top:14px; right:16px; padding:4px 10px; font:600 11px Inter; display:none; }
 #bigtext.wanted { color:#ffd060; font-size:90px; }
+#paintover { position:fixed; inset:0; z-index:9; pointer-events:none; opacity:0; transition:opacity 1.5s; background:radial-gradient(circle at 35% 40%, rgba(255,63,160,.95) 0 14%, transparent 15%), radial-gradient(circle at 58% 32%, rgba(255,63,160,.9) 0 9%, transparent 10%), radial-gradient(circle at 48% 55%, rgba(255,63,160,.85) 0 18%, transparent 19%), radial-gradient(circle at 66% 50%, rgba(255,63,160,.8) 0 7%, transparent 8%); }
+#paintover.on { opacity:1; transition:opacity .1s; }
 #flash { position:fixed; inset:0; z-index:44; background:#fff; opacity:0; pointer-events:none; }
 #flash.on { animation:fl .5s ease-out; }
 @keyframes fl { 0% { opacity:.85; } 100% { opacity:0; } }
@@ -291,7 +293,7 @@ body.slowmo #hud, body.slowmo #coop { display:none !important; }
 .mg-map button, .mg-ing button { font:700 26px Rajdhani; padding:18px; border-radius:8px; border:2px solid rgba(0,0,0,.2); background:#fff7e0; cursor:pointer; color:#5a4a2a; }
 .mg-map button.done, .mg-ing button.done { opacity:.25; }
 .mg-order { font-size:26px; margin-bottom:10px; } .mg-ing { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; } .mg-ing small { display:block; font:600 10px Inter; }
-#coop-acts { grid-template-columns:repeat(11,1fr); } .ca.empty { opacity:.35; } .ca span { font-size:9px; } #coop-acts.roof .ca[data-a="roof"] { background:rgba(255,122,26,.35); }
+#coop-acts { grid-template-columns:repeat(13,1fr); } .ca.empty { opacity:.35; } .ca span { font-size:9px; } #coop-acts.roof .ca[data-a="roof"] { background:rgba(255,122,26,.35); }
 /* tactile */
 #touch { position:fixed; inset:0; z-index:15; pointer-events:none; display:none; }
 body.touch[data-state="play"] #touch { display:block; }
@@ -546,6 +548,7 @@ body.touch #speedwrap { transform:scale(.55); transform-origin:left top; top:120
 
 <div id="ach"></div>
 <div id="flash"></div>
+<div id="paintover"></div>
 <div id="slowmo"><div class="bar top"></div><div class="bar bot"></div><div id="slowmo-label"></div><div class="rec">● REPLAY</div></div>
 <div id="mini"><div class="mini-box"><div id="mini-title"></div><div id="mini-hint"></div><div id="mini-body"></div><div class="mini-time"><b id="mini-time"></b></div></div></div>
 <div id="touch">

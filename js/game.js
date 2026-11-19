@@ -747,6 +747,17 @@ export class Game {
     const back = v.trailer ? _v.set(0, 0, -v.def.trailer.len + 0.5).applyQuaternion(v.trailer.curQuat).add(v.trailer.curPos) : _v.set(0, 0, -v.def.len / 2 - 1).applyQuaternion(v.curQuat).add(v.curPos);
     const yaw = v.yaw;
     if (kind === 'smoke') { this.smokeT = { t: 6, v }; return; }
+    if (kind === 'cones') { for (let i = 0; i < 4; i++) this.spawnProp('cone', new THREE.Vector3(back.x + (Math.random() - 0.5) * 3, 1.2, back.z + (Math.random() - 0.5) * 3), { x: v.lastV?.x * 0.6 || 0, y: 1.5, z: v.lastV?.z * 0.6 || 0 }); return; }
+    if (kind === 'paint') {
+      const tgt = this.police.filter(p => p.v !== v && !p.v.disabled && p.v.curPos.distanceTo(back) < 60).sort((a, b) => a.v.curPos.distanceTo(back) - b.v.curPos.distanceTo(back))[0]?.v || (this.team === 'police' && this.player !== v && this.player.curPos.distanceTo(back) < 60 ? this.player : null);
+      if (!tgt) { this.hud.toast('🎨 Raté : aucune voiture de police assez proche'); return; }
+      tgt.blindT = 6; tgt.paintT = 18;
+      const sp = new THREE.Mesh(new THREE.CircleGeometry(0.7, 12), new THREE.MeshStandardMaterial({ color: 0xff3fa0, roughness: 0.4 }));
+      sp.position.set(0.1, tgt.def.cab.belt - tgt.bodyY + 0.3, tgt.def.cab.wz + 0.1); sp.rotation.x = -0.9; sp.scale.set(1.3, 1, 1); tgt.mesh.add(sp); setTimeout(() => tgt.mesh.remove(sp), 18000);
+      if (tgt === this.player) { const o = document.getElementById('paintover'); o.classList.add('on'); setTimeout(() => o.classList.remove('on'), 7000); }
+      else this.say('paint' + tgt.unit, `${tgt.name} : « De la PEINTURE ?! Je ne vois plus rien ! »`, 5);
+      return;
+    }
     let mesh;
     if (kind === 'oil') {
       mesh = new THREE.Mesh(new THREE.CircleGeometry(3.2, 24), this._oilMat ||= new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.04, metalness: 0.7, transparent: true, opacity: 0.88 }));
@@ -858,8 +869,9 @@ export class Game {
   spawnProp(kind, pos, vel) {
     const R = this.R, isCheese = kind === 'cheese';
     const body = this.phys.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z).setLinvel(vel.x, vel.y, vel.z).setAngvel({ x: Math.random() * 4, y: Math.random() * 4, z: Math.random() * 4 }).setCcdEnabled(true));
-    this.phys.createCollider(isCheese ? R.ColliderDesc.cylinder(0.18, 0.45).setDensity(250).setFriction(0.4) : R.ColliderDesc.cuboid(0.3, 0.25, 0.3).setDensity(90).setFriction(0.6), body);
-    const mesh = new THREE.Mesh(isCheese ? new THREE.CylinderGeometry(0.45, 0.45, 0.36, 18) : new THREE.BoxGeometry(0.6, 0.5, 0.6), isCheese ? (this._cheeseMat ||= new THREE.MeshStandardMaterial({ color: 0xf0c040, roughness: 0.6 })) : (this._boxMat ||= new THREE.MeshStandardMaterial({ color: 0xa8814f, roughness: 0.9 })));
+    const isCone = kind === 'cone';
+    this.phys.createCollider(isCheese ? R.ColliderDesc.cylinder(0.18, 0.45).setDensity(250).setFriction(0.4) : isCone ? R.ColliderDesc.cylinder(0.37, 0.2).setDensity(60).setFriction(0.6) : R.ColliderDesc.cuboid(0.3, 0.25, 0.3).setDensity(90).setFriction(0.6), body);
+    const mesh = new THREE.Mesh(isCheese ? new THREE.CylinderGeometry(0.45, 0.45, 0.36, 18) : isCone ? new THREE.ConeGeometry(0.22, 0.75, 10) : new THREE.BoxGeometry(0.6, 0.5, 0.6), isCheese ? (this._cheeseMat ||= new THREE.MeshStandardMaterial({ color: 0xf0c040, roughness: 0.6 })) : isCone ? this.world.coneMat : (this._boxMat ||= new THREE.MeshStandardMaterial({ color: 0xa8814f, roughness: 0.9 })));
     mesh.castShadow = true; this.scene.add(mesh);
     this.cartons.push({ body, mesh, t: 0, kind });
   }
@@ -867,7 +879,7 @@ export class Game {
     for (const c of this.cartons) {
       c.t += dt; const p = c.body.translation(), q = c.body.rotation();
       c.mesh.position.set(p.x, p.y, p.z); c.mesh.quaternion.set(q.x, q.y, q.z, q.w);
-      for (const v of this.vehicles) if (v.isPolice && !v.oil && v.curPos.distanceToSquared(c.mesh.position) < 6) { v.oil = c.kind === 'cheese' ? 2 : 0.8; this.say('prop' + v.unit, c.kind === 'cheese' ? `${v.name} : « Des MEULES DE FROMAGE sur la chaussée ?! »` : `${v.name} : « Il nous balance des cartons ! »`, 6); }
+      for (const v of this.vehicles) if (v.isPolice && !v.oil && v.curPos.distanceToSquared(c.mesh.position) < 6) { v.oil = c.kind === 'cheese' ? 2 : 0.8; this.say('prop' + v.unit, c.kind === 'cheese' ? `${v.name} : « Des MEULES DE FROMAGE sur la chaussée ?! »` : c.kind === 'cone' ? `${v.name} : « Des cônes de chantier ?! Il se croit où ? »` : `${v.name} : « Il nous balance des cartons ! »`, 6); }
       if (c.t > 40 || p.y < -5) c.dead = true;
     }
     this.cartons = this.cartons.filter(c => { if (c.dead) { this.scene.remove(c.mesh); this.phys.removeRigidBody(c.body); } return !c.dead; });
@@ -1028,12 +1040,12 @@ export class Game {
     if (this.mission?.obj === 'fragile') this.hud.cargo?.(this.cargo);
     // le suspect IA se défend avec des gadgets (quantité limitée)
     if (this.team === 'police' && truck && this.released) {
-      this.fugGad ||= { oil: 2, nails: 2, smoke: 1, cd: 20 };
+      this.fugGad ||= { oil: 2, nails: 2, smoke: 1, paint: 1, cones: 1, cd: 20 };
       const fg = this.fugGad; fg.cd -= dt;
       const chaser = this.police.find(p => p.v.road.s < truck.road.s && truck.road.s - p.v.road.s < 45 && Math.abs(p.v.road.d - truck.road.d) < 6);
       if (chaser && fg.cd <= 0) {
-        const opt = ['oil', 'nails', 'smoke'].filter(k => fg[k] > 0);
-        if (opt.length) { const k = opt[Math.floor(Math.random() * opt.length)]; fg[k]--; fg.cd = 14 + Math.random() * 10; this.dropGadget(k, truck); this.radio({ oil: 'Attention ! Le suspect déverse de l’huile sur la chaussée !', nails: 'Il sème des clous derrière lui ! Écartez-vous !', smoke: 'Fumigène ! Visibilité nulle derrière le camion !' }[k], 'pol'); }
+        const opt = ['oil', 'nails', 'smoke', 'paint', 'cones'].filter(k => fg[k] > 0);
+        if (opt.length) { const k = opt[Math.floor(Math.random() * opt.length)]; fg[k]--; fg.cd = 14 + Math.random() * 10; this.dropGadget(k, truck); this.radio({ oil: 'Attention ! Le suspect déverse de l’huile sur la chaussée !', nails: 'Il sème des clous derrière lui ! Écartez-vous !', smoke: 'Fumigène ! Visibilité nulle derrière le camion !', paint: 'Il nous a jeté de la peinture sur le pare-brise !', cones: 'Il sème des cônes de chantier ! Attention !' }[k], 'pol'); }
       }
     }
     if (this.team === 'police' && pl.disabled) return this.finish(false, 'Véhicule hors service', 'Votre voiture de police est trop endommagée.');
