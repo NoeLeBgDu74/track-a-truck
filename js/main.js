@@ -39,7 +39,7 @@ async function boot() {
       rig.position.y -= 1.2;
       if (camera.parent !== rig) rig.add(camera);
     } else if (camera.parent === rig) { rig.remove(camera); }
-    renderer.render(game.scene, camera);
+    renderer.render(game.renderScene || game.scene, game.renderCamera || camera);
     fps(dt);
   });
   setLoad('Prêt', 100);

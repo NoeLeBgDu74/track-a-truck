@@ -17,6 +17,7 @@ import { HUD } from './hud.js';
 import { Net, QUICK_CHAT } from './net.js';
 import { Coop, ACTIONS } from './coop.js';
 import { Cinematic, storyShots } from './cine.js';
+import { Showroom } from './showroom.js';
 import { buildPoliceCar, buildPlayerTruck, buildTrailer, makeWheel, buildPerson, buildSeated, initMaterials, MAT } from './models.js';
 
 const $ = id => document.getElementById(id);
@@ -46,8 +47,7 @@ export class Game {
     this.lightsSetup();
     this.applyQuality();
     this.env.setTime(settings.time); this.env.setWeather(settings.weather);
-    this.world.update(this.menuS - 200, this.menuS + 200, new THREE.Vector3(0, 0, this.menuS), 0, true);
-    this.traffic.populate(this.menuS);
+    this.showroom = new Showroom(renderer);
     this.netSetup();
   }
 
@@ -221,7 +221,13 @@ export class Game {
     }
     // radio CB : V pour parler
     if (this.net.stream) this.net.setPTT(inp.down('KeyV'));
-    if (this.mirror) return this.mirrorFrame(dt);
+    if (this.mirror) { this.renderScene = null; return this.mirrorFrame(dt); }
+    if (this.state === 'menu') { // écran d'accueil : salle d'exposition dédiée (pas la partie)
+      this.time += dt; this.showroom.update(dt);
+      this.renderScene = this.showroom.scene; this.renderCamera = this.showroom.camera;
+      inp.endFrame(); return;
+    }
+    this.renderScene = null; this.renderCamera = null;
 
     if (this.state !== 'pause') {
       this.acc += dt;
@@ -750,11 +756,8 @@ export class Game {
     this.hud.show(false);
     this.setState('menu');
     this.env.setTime(settings.time); this.env.setWeather(settings.weather);
-    this.menuS = 150;
-    for (const k of [...this.world.chunks.keys()]) this.world.unload(k);
-    this.world.setRoadworks([]);
-    this.world.update(this.menuS - 200, this.menuS + 300, new THREE.Vector3(0, 0, this.menuS), 0, true);
-    this.traffic.populate(this.menuS);
+    this.traffic.clear();
+    this.showroom.setTruck(settings.vehicle.truck);
   }
   menuCam(dt) {
     this.menuS += dt * 24;

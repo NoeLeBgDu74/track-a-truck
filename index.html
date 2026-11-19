@@ -236,6 +236,8 @@ body.coop #mapwrap { bottom:150px; } body.coop #speedwrap { bottom:150px; transf
 #chaos { position:fixed; top:22%; left:50%; transform:translateX(-50%); z-index:10; font:700 44px Rajdhani; color:#ff3b2f; display:none; text-shadow:0 0 20px #000; pointer-events:none; }
 #chaos.on { display:block; animation:pulse .3s infinite; }
 
+@media (max-height:760px) { #home .menu { margin-top:18px; gap:6px; } #home .mbtn { padding:9px 16px; font-size:17px; } #home .logo .l1 { font-size:clamp(44px,8vw,96px); } .foot { display:none; } }
+#home { overflow:auto; }
 @media (max-width:760px) {
   .teams { grid-template-columns:1fr; }
   #speedwrap { transform:scale(.7); transform-origin:left bottom; }
