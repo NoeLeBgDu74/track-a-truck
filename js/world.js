@@ -417,6 +417,15 @@ export class World {
         const d = new THREE.Mesh(new THREE.CircleGeometry(0.45, 24), new THREE.MeshStandardMaterial({ map: t })); d.position.set(_p.x, 2.4, _p.z); d.rotation.y = roadYaw(s) + Math.PI; g.add(d);
       }
     }
+    // radars automatiques (cabine grise sur poteau) — tous les 2 km à PK impair
+    for (let sR = Math.ceil((s0 - 1000) / 2000) * 2000 + 1000; sR < s1; sR += 2000) {
+      if (sR < s0 || TUNNELS.some(([a, b]) => sR > a - 30 && sR < b + 30)) continue;
+      roadToWorld(sR, -16.8, _p);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 3.2, 8), this.postMat); post.position.set(_p.x, 1.6, _p.z); g.add(post);
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.9), new THREE.MeshStandardMaterial({ color: 0x8a8e95, roughness: 0.5, metalness: 0.4 })); box.position.set(_p.x, 3.4, _p.z); box.rotation.y = roadYaw(sR); g.add(box);
+      const lens = new THREE.Mesh(new THREE.CircleGeometry(0.15, 16), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0x331111 })); roadToWorld(sR - 0.46, -16.8, _p); lens.position.set(_p.x, 3.45, _p.z); lens.rotation.y = roadYaw(sR) + Math.PI; g.add(lens);
+      const pan = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), new THREE.MeshStandardMaterial({ map: signTex(['📷', 'RADAR'], '#1a4fa0', 256, 256) })); roadToWorld(sR - 300, -17.2, _p); pan.position.set(_p.x, 2.4, _p.z); pan.rotation.y = roadYaw(sR) + Math.PI; g.add(pan);
+    }
     // pré-signalisation aires
     for (const ra of REST_AREAS) for (const dist of [1000, 500]) {
       const s = ra.s0 - dist; if (s < s0 || s >= s1) continue;

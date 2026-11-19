@@ -105,7 +105,7 @@ function ui(game) {
     $('s-veh').innerHTML = TEAM_VEHICLES[team].map(id => `<button class="chip ${settings.vehicle[team] === id ? 'sel' : ''}" data-id="${id}">${VEHICLES[id].name}</button>`).join('');
     $('s-veh').querySelectorAll('.chip').forEach(b => b.onclick = () => { settings.vehicle[team] = b.dataset.id; saveSettings(); renderSetup(); });
     seg('s-diff', 'difficulty', [['easy', 'Facile'], ['normal', 'Normal'], ['hard', 'Difficile']], renderSetup);
-    seg('s-weather', 'weather', [['clear', '☀ Clair'], ['rain', '🌧 Pluie'], ['storm', '⛈ Orage'], ['fog', '🌫 Brouillard']], renderSetup);
+    seg('s-weather', 'weather', [['clear', '☀ Clair'], ['rain', '🌧 Pluie'], ['storm', '⛈ Orage'], ['fog', '🌫 Brouillard'], ['auto', '🔄 Variable']], renderSetup);
     seg('s-time', 'time', [['day', 'Jour'], ['dusk', 'Crépuscule'], ['night', 'Nuit'], ['cycle', 'Cycle']], renderSetup);
     $('s-brief').innerHTML = team === 'truck'
       ? '<b>Objectif :</b> livrer la cargaison à la <b>Plateforme Logistique</b> (sortie 18, 7,6 km) avant la fin du chrono. Vous avez <b>15 s d’avance</b>. Si la police vous immobilise (vitesse &lt; 14 km/h à son contact) ou détruit votre camion, c’est perdu. Méfiez-vous des barrages et des herses.'
@@ -124,7 +124,7 @@ function ui(game) {
     $('c-veh').innerHTML = TEAM_VEHICLES.truck.map(id => `<button class="chip ${settings.vehicle.truck === id ? 'sel' : ''}" data-id="${id}">${VEHICLES[id].name}</button>`).join('');
     $('c-veh').querySelectorAll('.chip').forEach(b => b.onclick = () => { settings.vehicle.truck = b.dataset.id; saveSettings(); renderCoop(); });
     seg('c-diff', 'difficulty', [['easy', 'Facile'], ['normal', 'Normal'], ['hard', 'Difficile']], renderCoop);
-    seg('c-weather', 'weather', [['clear', '☀ Clair'], ['rain', '🌧 Pluie'], ['storm', '⛈ Orage'], ['fog', '🌫 Brouillard']], renderCoop);
+    seg('c-weather', 'weather', [['clear', '☀ Clair'], ['rain', '🌧 Pluie'], ['storm', '⛈ Orage'], ['fog', '🌫 Brouillard'], ['auto', '🔄 Variable']], renderCoop);
     seg('c-time', 'time', [['day', 'Jour'], ['dusk', 'Crépuscule'], ['night', 'Nuit'], ['cycle', 'Cycle']], renderCoop);
   }
   $('c-go').onclick = () => { show('none'); game.start({ mode: 'coop', coop: coopKind }); };
@@ -135,7 +135,7 @@ function ui(game) {
   function renderFree() {
     $('f-veh').innerHTML = Object.values(VEHICLES).map(d => `<button class="vcard ${freeVeh === d.id ? 'sel' : ''}" data-id="${d.id}"><small>${d.team === 'truck' ? 'CAMION' : 'POLICE'}</small><b>${d.name}</b><span>${d.desc}</span></button>`).join('');
     $('f-veh').querySelectorAll('.vcard').forEach(b => b.onclick = () => { freeVeh = b.dataset.id; renderFree(); });
-    seg('f-weather', 'weather', [['clear', '☀ Clair'], ['rain', '🌧 Pluie'], ['storm', '⛈ Orage'], ['fog', '🌫 Brouillard']], renderFree);
+    seg('f-weather', 'weather', [['clear', '☀ Clair'], ['rain', '🌧 Pluie'], ['storm', '⛈ Orage'], ['fog', '🌫 Brouillard'], ['auto', '🔄 Variable']], renderFree);
     seg('f-time', 'time', [['day', 'Jour'], ['dusk', 'Crépuscule'], ['night', 'Nuit'], ['cycle', 'Cycle']], renderFree);
   }
   $('f-go').onclick = () => { show('none'); game.start({ mode: 'free', team: VEHICLES[freeVeh].team, vehicle: freeVeh }); };
@@ -177,7 +177,7 @@ function ui(game) {
     seg('o-quality', 'quality', [['low', 'Basse'], ['medium', 'Moyenne'], ['high', 'Haute']], () => { game.applyQuality(); renderSettings(); });
     $('o-shadows').checked = settings.shadows; $('o-shadows').onchange = e => { settings.shadows = e.target.checked; saveSettings(); game.applyQuality(); };
     seg('o-density', 'density', [['low', 'Faible'], ['normal', 'Normale'], ['high', 'Dense']], renderSettings);
-    seg('o-weather', 'weather', [['clear', '☀ Clair'], ['rain', '🌧 Pluie'], ['storm', '⛈ Orage'], ['fog', '🌫 Brouillard']], () => { game.env.setWeather(settings.weather); renderSettings(); });
+    seg('o-weather', 'weather', [['clear', '☀ Clair'], ['rain', '🌧 Pluie'], ['storm', '⛈ Orage'], ['fog', '🌫 Brouillard'], ['auto', '🔄 Variable']], () => { game.env.setWeather(settings.weather); renderSettings(); });
     seg('o-time', 'time', [['day', 'Jour'], ['dusk', 'Crépuscule'], ['night', 'Nuit'], ['cycle', 'Cycle']], () => { game.env.setTime(settings.time); renderSettings(); });
     $('o-vol').value = settings.volume; $('o-vol').oninput = e => { settings.volume = +e.target.value; saveSettings(); game.audio.setVolume(settings.volume); };
     $('o-sens').value = settings.sens; $('o-sens').oninput = e => { settings.sens = +e.target.value; saveSettings(); };

@@ -49,6 +49,7 @@ export class Game {
     this.mirror = false; this.coop = null; this.confuseT = 0; this.said = {}; this.heat = 0; this.slow = 0; this.slowCd = 0; this.cartons = []; this.cheeses = [];
     this.heli = this.buildHeli();
     this.world.gamePlayer = () => this.player;
+    this.env.onChange = w => this.state === 'play' && this.hud.toast({ clear: '☀ Le ciel se dégage', rain: '🌧 Il commence à pleuvoir', fog: '🌫 Le brouillard tombe', storm: '⛈ Un orage éclate !' }[w]);
     this.bayMark = this.buildBayMark();
     this.lightsSetup();
     this.applyQuality();
@@ -558,6 +559,12 @@ export class Game {
     if (pl) {
       this.stats.topSpeed = Math.max(this.stats.topSpeed, pl.kmh);
       if (this.state === 'play' && pl.road.d < -120 && pl.road.s > VILLAGE.s0 && pl.road.s < VILLAGE.s1) this.unlock('bis');
+      // radars automatiques (tous les 2 km, sens +s) : flash au-delà de 135 km/h
+      const rs = Math.round((pl.road.s - 1000) / 2000) * 2000 + 1000;
+      if (this.state === 'play' && pl.road.d < 0 && pl.road.d > -16 && Math.abs(pl.road.s - rs) < 3 && this.lastRadar !== rs) {
+        this.lastRadar = rs;
+        if (pl.kmh > 135) { const f = document.getElementById('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); this.audio.beep(2400, 0.05, 0.1); this.hud.msg(`📸 Flashé à <b>${Math.round(pl.kmh)} km/h</b> (limite 130).` + (this.team === 'truck' && this.mode !== 'free' ? ' La police est prévenue.' : '')); if (this.team === 'truck' && this.mode !== 'free') this.heat += 4; }
+      }
       // « pschitt » des freins à air quand le poids lourd s'immobilise
       if (pl.team === 'truck') { if (pl.kmh > 8) this.airArm = true; if (this.airArm && pl.kmh < 1.5 && pl.brk > 0.1) { this.airArm = false; this.audio.hiss?.(); } }
     }

@@ -56,10 +56,11 @@ export class Env {
     this.timeOfDay = { day: 13, dusk: 19.6, night: 23.5, dawn: 6.6, cycle: 17.5 }[preset] ?? 13;
     this.envDirty = true;
   }
-  setWeather(w) { this.weather = w; this.envDirty = true; }
+  setWeather(w) { this.auto = w === 'auto'; this.weather = this.auto ? 'clear' : w; this.autoT = 60 + Math.random() * 60; this.envDirty = true; }
 
   update(dt, focus, camPos, inTunnel, audio) {
     if (this.cycle) { this.timeOfDay = (this.timeOfDay + dt * 24 / 900) % 24; this.envT += dt; if (this.envT > 4) { this.envT = 0; this.envDirty = true; } }
+    if (this.auto) { this.autoT -= dt; if (this.autoT <= 0) { const opts = ['clear', 'clear', 'rain', 'fog', 'storm'].filter(x => x !== this.weather); this.weather = opts[Math.floor(Math.random() * opts.length)]; this.autoT = 90 + Math.random() * 90; this.envDirty = true; this.onChange?.(this.weather); } }
     const wantRain = this.weather === 'rain' || this.weather === 'storm' ? 1 : 0;
     const wantFog = this.weather === 'fog' ? 1 : (wantRain ? 0.35 : 0);
     this.rainAmt += (wantRain - this.rainAmt) * Math.min(1, dt * 0.5);

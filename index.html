@@ -258,6 +258,9 @@ body.coop #mapwrap { bottom:150px; } body.coop #speedwrap { bottom:150px; transf
 #h-cargo i { display:block; height:6px; background:rgba(255,255,255,.1); border-radius:3px; margin-top:5px; overflow:hidden; } #h-cargo b { display:block; height:100%; width:100%; background:#ffd060; }
 #h-net { position:absolute; top:14px; right:16px; padding:4px 10px; font:600 11px Inter; display:none; }
 #bigtext.wanted { color:#ffd060; font-size:90px; }
+#flash { position:fixed; inset:0; z-index:44; background:#fff; opacity:0; pointer-events:none; }
+#flash.on { animation:fl .5s ease-out; }
+@keyframes fl { 0% { opacity:.85; } 100% { opacity:0; } }
 /* succès */
 #ach { position:fixed; top:70px; left:50%; transform:translate(-50%,-20px); z-index:45; background:linear-gradient(90deg,#2a1e08,#3a2a0a); border:2px solid #ffd060; border-radius:14px; padding:10px 18px; display:grid; grid-template-columns:1fr auto; gap:2px 16px; opacity:0; pointer-events:none; transition:.35s; box-shadow:0 10px 40px rgba(0,0,0,.5); min-width:300px; }
 #ach.on { opacity:1; transform:translate(-50%,0); }
@@ -542,6 +545,7 @@ body.touch #speedwrap { transform:scale(.55); transform-origin:left top; top:120
 
 
 <div id="ach"></div>
+<div id="flash"></div>
 <div id="slowmo"><div class="bar top"></div><div class="bar bot"></div><div id="slowmo-label"></div><div class="rec">● REPLAY</div></div>
 <div id="mini"><div class="mini-box"><div id="mini-title"></div><div id="mini-hint"></div><div id="mini-body"></div><div class="mini-time"><b id="mini-time"></b></div></div></div>
 <div id="touch">
