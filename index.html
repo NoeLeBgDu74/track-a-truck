@@ -187,6 +187,55 @@ body:not([data-state="menu"]) #vrbtn { display:none; }
 #m-players, #m-rooms { padding-left:18px; line-height:1.9; }
 .note { font-size:12px; color:var(--mute); line-height:1.5; margin-top:10px; }
 
+
+/* cinématique */
+#cine { position:fixed; inset:0; z-index:40; pointer-events:none; display:none; }
+#cine.on { display:block; }
+#cine .bar { position:absolute; left:0; right:0; height:12vh; background:#000; }
+#cine .top { top:0; } #cine .bot { bottom:0; }
+#cine-text { position:absolute; left:50%; bottom:15vh; transform:translateX(-50%); width:min(900px,90vw); text-align:center; font:500 clamp(16px,2.2vw,26px)/1.4 Inter; color:#fff; text-shadow:0 2px 12px #000; opacity:0; }
+#cine-text.in { animation:cin 0.9s forwards; }
+@keyframes cin { from { opacity:0; transform:translate(-50%,10px); } to { opacity:1; transform:translate(-50%,0); } }
+#cine-skip { position:absolute; right:24px; bottom:calc(12vh + 14px); pointer-events:auto; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.3); color:#fff; padding:8px 16px; border-radius:999px; font:600 13px Inter; }
+body[data-state="cine"] #hud { display:none; }
+/* coop */
+#coop { display:none; position:fixed; left:50%; bottom:10px; transform:translateX(-50%); z-index:12; width:min(760px,64vw); background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:8px 10px; backdrop-filter:blur(6px); }
+body.coop[data-state="play"] #coop, body.coop[data-state="countdown"] #coop { display:block; }
+#coop-role { font:700 12px Rajdhani; letter-spacing:.12em; color:var(--acc2); text-align:center; text-transform:uppercase; margin-bottom:6px; }
+#coop-chars { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+.cc { background:rgba(255,255,255,.04); border:1px solid var(--line); border-radius:10px; padding:6px 8px; }
+.cc.drv { border-color:var(--acc); box-shadow:inset 0 0 0 1px var(--acc); }
+.cn { font:700 15px Rajdhani; letter-spacing:.04em; margin-bottom:3px; }
+.cn small { color:var(--mute); }
+.cb { display:grid; grid-template-columns:62px 1fr; gap:6px; align-items:center; font-size:10px; color:var(--mute); margin:2px 0; }
+.cb i { height:6px; background:rgba(255,255,255,.08); border-radius:3px; overflow:hidden; }
+.cb b { display:block; height:100%; border-radius:3px; transition:width .3s; }
+.cinv { font-size:12px; margin-top:4px; }
+#coop-acts { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin-top:8px; }
+.ca { pointer-events:auto; display:flex; flex-direction:column; align-items:center; gap:1px; padding:5px 2px; border-radius:9px; border:1px solid var(--line); background:rgba(255,255,255,.05); color:var(--ink); font-size:20px; cursor:pointer; position:relative; }
+.ca:hover { background:rgba(255,122,26,.2); border-color:var(--acc); }
+.ca span { font:600 10px Inter; }
+.ca kbd { position:absolute; top:2px; left:4px; font-size:9px; padding:0 3px; }
+body.coop #mapwrap { bottom:150px; } body.coop #speedwrap { bottom:150px; transform:scale(.8); transform-origin:left bottom; } body.coop #keyhint { display:none; }
+#eyelids { position:fixed; inset:0; z-index:9; pointer-events:none; --c:0; }
+#eyelids i { position:absolute; left:0; right:0; height:calc(var(--c) * 52vh); background:#000; transition:height .25s; }
+#eyelids .t { top:0; border-radius:0 0 50% 50% / 0 0 30% 30%; } #eyelids .b { bottom:0; border-radius:50% 50% 0 0 / 30% 30% 0 0; }
+#zzz { position:fixed; top:30%; left:50%; transform:translateX(-50%); z-index:10; font:700 64px Rajdhani; color:#fff; opacity:0; pointer-events:none; text-shadow:0 0 20px #000; }
+#zzz.on { opacity:1; animation:zz 1.4s infinite; }
+@keyframes zz { 50% { transform:translate(-50%,-14px) rotate(-6deg); } }
+#mapover { position:fixed; inset:12% 18%; z-index:9; display:none; place-items:center; background:repeating-linear-gradient(90deg,#f1e6c8 0 120px,#e6d8b2 120px 122px), #f1e6c8; color:#5a4a2a; font:700 40px Rajdhani; text-align:center; transform:rotate(-4deg); box-shadow:0 20px 60px rgba(0,0,0,.6); border-radius:4px; pointer-events:none; }
+#mapover.on { display:grid; animation:flap .4s infinite alternate; }
+@keyframes flap { to { transform:rotate(-2deg) scale(1.02); } }
+#greenfog { position:fixed; inset:0; z-index:8; pointer-events:none; background:radial-gradient(ellipse at center, rgba(120,200,40,.12), rgba(90,160,20,.45)); opacity:0; transition:opacity 1s; }
+#greenfog.on { opacity:1; }
+#bee { position:fixed; z-index:9; font-size:44px; display:none; pointer-events:none; }
+#bee.on { display:block; animation:beefly 1.7s infinite linear; }
+@keyframes beefly { 0% { left:30%; top:30%; } 25% { left:62%; top:22%; } 50% { left:55%; top:48%; } 75% { left:38%; top:40%; } 100% { left:30%; top:30%; } }
+#poop { position:fixed; left:42%; top:24%; width:16vw; height:13vw; z-index:8; pointer-events:none; display:none; background:radial-gradient(circle at 40% 40%, rgba(255,255,240,.95) 0 30%, rgba(230,230,210,.8) 45%, transparent 70%); filter:blur(1px); }
+#poop.on { display:block; }
+#chaos { position:fixed; top:22%; left:50%; transform:translateX(-50%); z-index:10; font:700 44px Rajdhani; color:#ff3b2f; display:none; text-shadow:0 0 20px #000; pointer-events:none; }
+#chaos.on { display:block; animation:pulse .3s infinite; }
+
 @media (max-width:760px) {
   .teams { grid-template-columns:1fr; }
   #speedwrap { transform:scale(.7); transform-origin:left bottom; }
@@ -214,9 +263,10 @@ body:not([data-state="menu"]) #vrbtn { display:none; }
   <div class="logo"><span class="l1">TRACK <span class="a">A</span> TRUCK</span><span class="l2">POURSUITE SUR AUTOROUTE</span></div>
   <div class="menu">
     <button class="mbtn primary" id="b-play"><span class="ic">▶</span><span>Jouer<small>Poursuite : camion contre police</small></span></button>
+    <button class="mbtn" id="b-coop"><span class="ic">👬</span><span>Coop à 2<small>Deux routiers, un camion, zéro sommeil</small></span></button>
     <button class="mbtn" id="b-free"><span class="ic">🛣</span><span>Mode libre<small>Rouler sans objectif</small></span></button>
     <button class="mbtn" id="b-garage"><span class="ic">🔧</span><span>Garage<small>Véhicules et peintures</small></span></button>
-    <button class="mbtn" id="b-multi"><span class="ic">🌐</span><span>Multijoueur<small>Salons via serveur WebSocket</small></span></button>
+    <button class="mbtn" id="b-multi"><span class="ic">🌐</span><span>Multijoueur<small>Code de partie, sans serveur + radio CB</small></span></button>
     <button class="mbtn" id="b-settings"><span class="ic">⚙</span><span>Paramètres<small>Graphismes, météo, son</small></span></button>
     <button class="mbtn" id="b-help"><span class="ic">⌨</span><span>Commandes</span></button>
   </div>
@@ -238,6 +288,24 @@ body:not([data-state="menu"]) #vrbtn { display:none; }
     <h3>Moment</h3><div class="chips" id="s-time"></div>
     <div class="brief" id="s-brief"></div>
     <div class="row"><button class="btn" data-back="home">Retour</button><button class="btn go" id="s-go">Lancer la partie</button></div>
+  </div>
+</section>
+
+
+<section id="setup-coop" class="screen center">
+  <div class="panel">
+    <h2>Coop : Les Routiers de l'Extrême</h2>
+    <p class="sub">Deux routiers dans le même camion. Un conduit, l'autre gère la cabine : sandwichs, café, gifles, radio, bananes sur la police, fausses infos à la CB… Attention : le conducteur fatigue, a faim, s'endort au volant, et il se passe des choses <b>très</b> bizarres dans cette cabine.</p>
+    <div class="teams">
+      <button class="team truck" data-coop="local"><div class="em">🎮</div><b>À DEUX SUR CE PC</b><span>Un joueur conduit au clavier (ZQSD), l'autre gère la cabine à la souris. Tab = relais.</span></button>
+      <button class="team truck" data-coop="solo"><div class="em">🤖</div><b>AVEC GÉGÉ (IA)</b><span>Ton copilote est une IA. Tab = relais : il conduit (mal) et c'est toi qui gères la cabine.</span></button>
+    </div>
+    <p class="note">En ligne avec un pote : <b>Multijoueur → Créer une partie → mode Coop</b>.</p>
+    <h3>Camion</h3><div class="chips" id="c-veh"></div>
+    <h3>Difficulté</h3><div class="chips" id="c-diff"></div>
+    <h3>Météo</h3><div class="chips" id="c-weather"></div>
+    <h3>Moment</h3><div class="chips" id="c-time"></div>
+    <div class="row"><button class="btn" data-back="home">Retour</button><button class="btn go" id="c-go">Prendre la route</button></div>
   </div>
 </section>
 
@@ -286,26 +354,28 @@ body:not([data-state="menu"]) #vrbtn { display:none; }
 <section id="multi" class="screen center">
   <div class="panel">
     <h2>Multijoueur</h2>
-    <p class="sub">Parties en ligne entre vrais joueurs via un serveur relais WebSocket. Aucun joueur n'est simulé.</p>
-    <div class="opt"><label>Adresse du serveur</label><input type="text" id="m-url"></div>
-    <div class="opt"><label>Pseudo</label><input type="text" id="m-name" maxlength="20"></div>
-    <div class="row" style="justify-content:flex-start"><button class="btn go" id="m-connect">Se connecter</button></div>
-    <p id="m-status" class="note"></p>
-    <div id="m-rooms-wrap" style="display:none">
-      <h3>Parties ouvertes</h3>
-      <ul id="m-rooms"></ul>
-      <div class="row" style="justify-content:flex-start">
-        <button class="btn" id="m-refresh">Actualiser</button><button class="btn go" id="m-create">Créer une partie</button>
-        <input type="text" id="m-joincode" placeholder="Code" maxlength="4" style="width:110px"><button class="btn" id="m-join">Rejoindre</button>
+    <p class="sub">Comme sur 2X2 : pas de serveur à installer. Crée une partie et donne le <b>code</b> (ou le lien) à tes potes. Jusqu'à 8 joueurs.</p>
+    <div class="opt"><label>Ton pseudo</label><input type="text" id="m-name" maxlength="20"></div>
+    <div id="m-out">
+      <div class="row" style="justify-content:flex-start;margin-top:14px">
+        <button class="btn go" id="m-create">Créer une partie</button>
+        <input type="text" id="m-joincode" placeholder="CODE" maxlength="4" style="width:120px;text-transform:uppercase;font:700 20px Rajdhani;letter-spacing:.2em;text-align:center">
+        <button class="btn" id="m-join">Rejoindre</button>
       </div>
     </div>
+    <p id="m-status" class="note"></p>
     <div id="m-lobby" style="display:none">
-      <h3>Salon <span id="m-code" style="color:var(--acc)"></span></h3>
+      <h3>Partie <span id="m-code" style="color:var(--acc);font-size:26px;letter-spacing:.2em"></span> <button class="chip" id="m-copy">📋 Copier le lien</button></h3>
       <ul id="m-players"></ul>
-      <div class="chips"><button class="chip" data-mteam="truck">🚛 Équipe camion</button><button class="chip" data-mteam="police">🚔 Équipe police</button></div>
-      <div class="row" style="justify-content:flex-start"><button class="btn go" id="m-start">Démarrer</button></div>
+      <div id="m-host-opts">
+        <h3>Mode (choisi par le créateur)</h3>
+        <div class="chips" id="m-mode"><button class="chip" data-mm="online">🚔 Poursuite (équipes)</button><button class="chip" data-mm="coop">👬 Coop à 2 (même camion)</button></div>
+      </div>
+      <h3>Ton équipe (poursuite)</h3>
+      <div class="chips"><button class="chip" data-mteam="truck">🚛 Camion</button><button class="chip" data-mteam="police">🚔 Police</button></div>
+      <div class="row" style="justify-content:flex-start"><button class="btn" id="m-voice">📻 Allumer la radio CB (micro)</button><button class="btn go" id="m-start">Démarrer</button><button class="btn" id="m-leave">Quitter</button></div>
+      <p class="note">Radio CB : maintiens <kbd>V</kbd> pour parler. Coop : le créateur conduit d'abord, <kbd>Tab</kbd> pour échanger. Poursuite : chacun choisit son équipe ; la police doit immobiliser les camions.</p>
     </div>
-    <p class="note">Le serveur se trouve dans <b>server/</b> : <kbd>npm install ws</kbd> puis <kbd>node server.js</kbd> (port 8787). Synchronisés : positions, rotations, vitesses, remorques, sirènes, chat rapide (touches 1–6), interpellations et livraisons. Le trafic civil reste local à chaque joueur.</p>
     <div class="row"><button class="btn" data-back="home">Retour</button></div>
   </div>
 </section>
@@ -323,14 +393,17 @@ body:not([data-state="menu"]) #vrbtn { display:none; }
       <div><kbd>H</kbd> Klaxon</div>
       <div><kbd>L</kbd> Phares</div>
       <div><kbd>E</kbd> Sirène / gyrophares (police)</div>
-      <div><kbd>V</kbd> Essuie-glaces</div>
+      <div><kbd>B</kbd> Essuie-glaces</div>
+      <div><kbd>V</kbd> Parler (radio CB en ligne)</div>
+      <div><kbd>Tab</kbd> Relais conducteur (coop)</div>
+      <div><kbd>1</kbd>…<kbd>7</kbd> Actions copilote (coop)</div>
       <div><kbd>F</kbd> Descendre / remonter</div>
       <div><kbd>R</kbd> Remettre sur la route</div>
       <div><kbd>M</kbd> Zoom de la minicarte</div>
       <div><kbd>Échap</kbd> Menu pause</div>
       <div>🖱 Clic + glisser : regarder autour</div>
       <div>🎮 Manette : RT/LT, stick, A frein à main, Y caméra</div>
-      <div><kbd>1</kbd>…<kbd>6</kbd> Chat rapide (en ligne)</div>
+      <div><kbd>1</kbd>…<kbd>6</kbd> Chat rapide (poursuite en ligne)</div>
     </div>
     <h3>Règles</h3>
     <p class="sub" style="line-height:1.6">Le camion gagne s'il atteint la <b>Plateforme Logistique</b> (sortie 18) avant la fin du chrono. La police gagne si elle maintient le camion sous 14 km/h à moins de 15 m pendant ~3 s, si le camion est détruit, ou si le chrono expire. La police déploie renforts, barrages et herses.</p>
@@ -357,6 +430,24 @@ body:not([data-state="menu"]) #vrbtn { display:none; }
     <button class="mbtn" id="p-quit">Quitter vers l'accueil</button>
   </div></div></div>
 
+
+<!-- Cinématique -->
+<div id="cine"><div class="bar top"></div><div class="bar bot"></div><div id="cine-text"></div><button id="cine-skip">Passer ▶</button></div>
+
+<!-- Coop : panneau copilote + effets -->
+<div id="eyelids"><i class="t"></i><i class="b"></i></div>
+<div id="zzz">Z z z…</div>
+<div id="mapover"><div>🗺️<br>CARTE ROUTIÈRE<br><small>ÉDITION 1987</small></div></div>
+<div id="greenfog"></div>
+<div id="bee">🐝</div>
+<div id="poop"></div>
+<div id="chaos">🔁 RELAIS À LA VOLÉE !!!</div>
+<div id="coop">
+  <div id="coop-role"></div>
+  <div id="coop-chars"></div>
+  <div id="coop-acts"></div>
+</div>
+
 <!-- HUD -->
 <div id="hud">
   <div id="objective" class="glass hide-end"><div id="h-obj"></div><div id="route"><div id="route-marks"></div></div></div>
@@ -377,10 +468,11 @@ body:not([data-state="menu"]) #vrbtn { display:none; }
   </div>
   <div id="toast"></div>
   <div id="bigtext"></div>
-  <div id="keyhint"><span><kbd>C</kbd> caméra</span><span><kbd>L</kbd> phares</span><span id="siren-hint"><kbd>E</kbd> sirène</span><span><kbd>H</kbd> klaxon</span><span><kbd>F</kbd> sortir</span><span><kbd>R</kbd> replacer</span><span><kbd>Échap</kbd> menu</span></div>
+  <div id="keyhint"><span><kbd>C</kbd> caméra</span><span><kbd>L</kbd> phares</span><span id="siren-hint"><kbd>E</kbd> sirène</span><span><kbd>H</kbd> klaxon</span><span><kbd>F</kbd> sortir</span><span><kbd>B</kbd> essuie-glaces</span><span><kbd>R</kbd> replacer</span><span><kbd>Échap</kbd> menu</span></div>
   <div id="chatkeys"></div>
 </div>
 
+<script src="lib/peerjs.min.js"></script>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>

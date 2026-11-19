@@ -61,6 +61,7 @@ function ui(game) {
   // accueil
   $('b-play').onclick = () => { show('setup'); renderSetup(); };
   $('b-free').onclick = () => { show('setup-free'); renderFree(); };
+  $('b-coop').onclick = () => { show('setup-coop'); renderCoop(); };
   $('b-garage').onclick = () => { show('garage'); game.openGarage(settings.team); renderGarage(); };
   $('b-settings').onclick = () => { show('settings'); renderSettings('home'); };
   $('b-multi').onclick = () => { show('multi'); renderMulti(); };
@@ -85,6 +86,19 @@ function ui(game) {
     $(id).querySelectorAll('.chip').forEach(b => b.onclick = () => { settings[key] = b.dataset.v; saveSettings(); re(); });
   }
   $('s-go').onclick = () => { show('none'); game.start({ mode: 'chase', team }); };
+
+  // coop
+  let coopKind = 'solo';
+  function renderCoop() {
+    document.querySelectorAll('#setup-coop .team').forEach(c => { c.classList.toggle('sel', c.dataset.coop === coopKind); c.onclick = () => { coopKind = c.dataset.coop; renderCoop(); }; });
+    $('c-veh').innerHTML = TEAM_VEHICLES.truck.map(id => `<button class="chip ${settings.vehicle.truck === id ? 'sel' : ''}" data-id="${id}">${VEHICLES[id].name}</button>`).join('');
+    $('c-veh').querySelectorAll('.chip').forEach(b => b.onclick = () => { settings.vehicle.truck = b.dataset.id; saveSettings(); renderCoop(); });
+    seg('c-diff', 'difficulty', [['easy', 'Facile'], ['normal', 'Normal'], ['hard', 'Difficile']], renderCoop);
+    seg('c-weather', 'weather', [['clear', '☀ Clair'], ['rain', '🌧 Pluie'], ['storm', '⛈ Orage'], ['fog', '🌫 Brouillard']], renderCoop);
+    seg('c-time', 'time', [['day', 'Jour'], ['dusk', 'Crépuscule'], ['night', 'Nuit'], ['cycle', 'Cycle']], renderCoop);
+  }
+  $('c-go').onclick = () => { show('none'); game.start({ mode: 'coop', coop: coopKind }); };
+  $('coop-acts').addEventListener('click', e => { const b = e.target.closest('.ca'); if (b) game.coopAct(b.dataset.a); });
 
   // mode libre
   let freeVeh = settings.vehicle[settings.team];
@@ -134,47 +148,72 @@ function ui(game) {
   $('e-again').onclick = () => { show('none'); game.start(game.lastCfg); };
   $('e-menu').onclick = () => { game.toMenu(); show('home'); };
 
-  // multijoueur
+  // multijoueur (PeerJS : code de partie, comme 2X2)
   const net = game.net;
+  let netMode = 'online';
   function renderMulti() {
-    $('m-url').value = settings.server; $('m-name').value = settings.playerName;
-    $('m-status').textContent = net.connected ? 'Connecté au serveur.' : 'Non connecté.';
-    $('m-lobby').style.display = net.room ? '' : 'none';
-    $('m-rooms-wrap').style.display = net.connected && !net.room ? '' : 'none';
-    if (net.room) {
-      $('m-code').textContent = net.room.code;
-      $('m-players').innerHTML = net.room.players.map(p => `<li class="${p.team}">${p.host ? '★ ' : ''}${p.name} — ${p.team === 'truck' ? '🚛 Camion' : '🚔 Police'}</li>`).join('');
-      const me = net.room.players.find(p => p.id === net.id);
-      $('m-start').style.display = me?.host ? '' : 'none';
+    $('m-name').value = settings.playerName;
+    const inRoom = !!net.peer && (net.host || net.connected);
+    $('m-lobby').style.display = inRoom ? '' : 'none';
+    $('m-out').style.display = inRoom ? 'none' : '';
+    if (!net.available) $('m-status').textContent = 'Le mode en ligne est indisponible (bibliothèque réseau non chargée).';
+    if (inRoom) {
+      $('m-code').textContent = net.code;
+      $('m-players').innerHTML = net.roster().map(p => `<li class="${p.team}">${p.host ? '★ ' : ''}${p.name}${p.id === net.id ? ' (toi)' : ''} — ${p.team === 'truck' ? '🚛 Camion' : '🚔 Police'}</li>`).join('');
+      $('m-host-opts').style.display = net.host ? '' : 'none';
+      $('m-start').style.display = net.host ? '' : 'none';
+      document.querySelectorAll('#m-mode .chip').forEach(c => { c.classList.toggle('sel', c.dataset.mm === netMode); c.onclick = () => { netMode = c.dataset.mm; net.send({ t: 'mode', m: netMode }); renderMulti(); }; });
+      document.querySelectorAll('#multi [data-mteam]').forEach(b => b.classList.toggle('sel', b.dataset.mteam === net.me.team));
+      $('m-voice').textContent = net.stream ? '📻 Radio CB allumée (V pour parler)' : '📻 Allumer la radio CB (micro)';
+      if (!net.host) $('m-status').textContent = netMode === 'coop' ? 'Mode Coop : tu seras copilote dans le camion du créateur.' : 'Mode Poursuite : choisis ton équipe, le créateur lance la partie.';
     }
   }
-  $('m-connect').onclick = async () => {
-    settings.server = $('m-url').value.trim(); settings.playerName = $('m-name').value.trim() || 'Joueur'; saveSettings();
-    $('m-status').textContent = 'Connexion…';
-    try { await net.connect(settings.server, settings.playerName); net.listRooms(); }
-    catch (e) { $('m-status').textContent = 'Serveur injoignable (' + e.message + '). Lancez server/server.js — voir README.'; return; }
+  const myName = () => { settings.playerName = ($('m-name').value.trim() || 'Joueur').slice(0, 20); saveSettings(); return settings.playerName; };
+  $('m-create').onclick = async () => {
+    $('m-status').textContent = 'Création de la partie…';
+    try { const code = await net.hostGame(myName()); net.setTeam(settings.team, settings.vehicle[settings.team]); $('m-status').textContent = `Partie créée ! Donne le code ${code} à tes potes.`; }
+    catch (e) { $('m-status').textContent = 'Impossible de créer la partie : ' + e.message; }
     renderMulti();
   };
-  net.on('rooms', m => { $('m-rooms').innerHTML = m.rooms.length ? m.rooms.map(r => `<li><b>${r.name}</b> (${r.players.length} joueurs) <button class="chip" data-c="${r.code}">Rejoindre</button></li>`).join('') : '<li>Aucune partie ouverte.</li>'; $('m-rooms').querySelectorAll('button').forEach(b => b.onclick = () => net.joinRoom(b.dataset.c)); });
+  const join = async code => {
+    if (!code) return;
+    $('m-status').textContent = 'Connexion à la partie ' + code.toUpperCase() + '…';
+    try { await net.joinGame(code, myName()); net.setTeam(settings.team, settings.vehicle[settings.team]); $('m-status').textContent = 'Connecté !'; }
+    catch (e) { $('m-status').textContent = '❌ ' + e.message; }
+    renderMulti();
+  };
+  $('m-join').onclick = () => join($('m-joincode').value.trim());
+  $('m-joincode').addEventListener('keydown', e => { if (e.key === 'Enter') join($('m-joincode').value.trim()); });
+  $('m-copy').onclick = () => { const u = location.href.split('?')[0] + '?room=' + net.code; try { navigator.clipboard.writeText(u); $('m-status').textContent = '🔗 Lien copié : ' + u; } catch (e) { $('m-status').textContent = u; } };
+  $('m-leave').onclick = () => { net.leave(); renderMulti(); };
+  $('m-voice').onclick = async () => { await net.enableVoice(); renderMulti(); };
+  document.querySelectorAll('#multi [data-mteam]').forEach(b => b.onclick = () => { const t = b.dataset.mteam; settings.team = t; saveSettings(); net.setTeam(t, settings.vehicle[t]); renderMulti(); });
+  $('m-start').onclick = () => {
+    if (netMode === 'coop' && net.players.size < 1) { $('m-status').textContent = 'Attends que ton pote rejoigne la partie.'; return; }
+    net.start({ mode: netMode, weather: settings.weather, time: settings.time, difficulty: settings.difficulty });
+  };
   net.on('room', renderMulti); net.on('close', renderMulti);
-  net.on('error', m => $('m-status').textContent = m.msg);
-  $('m-create').onclick = () => net.createRoom(settings.playerName + ' — partie');
-  $('m-join').onclick = () => net.joinRoom($('m-joincode').value.trim());
-  $('m-refresh').onclick = () => net.listRooms();
-  document.querySelectorAll('#multi [data-mteam]').forEach(b => b.onclick = () => { const t = b.dataset.mteam; settings.team = t; saveSettings(); net.setTeam(t, settings.vehicle[t]); });
-  $('m-start').onclick = () => net.start();
+  net.on('mode', m => { netMode = m.m; renderMulti(); });
+  net.on('joined', () => { if (net.host) net.send({ t: 'mode', m: netMode }); });
+  net.on('error', m => { $('m-status').textContent = m.msg; game.hud.toast(m.msg); });
   net.on('start', m => {
-    const me = net.room?.players.find(p => p.id === net.id);
-    const t = me?.team || 'truck';
     show('none');
-    setTimeout(() => game.start({ mode: 'online', team: t, seed: m.seed }), Math.max(0, m.at - Date.now()));
+    if (m.difficulty) settings.difficulty = m.difficulty;
+    const go = () => {
+      if (m.mode === 'coop') game.start({ mode: 'coop', coop: 'online', mirror: !net.host, seed: m.seed, weather: m.weather, time: m.time, cineFirst: true });
+      else game.start({ mode: 'online', team: net.me.team, seed: m.seed, weather: m.weather, time: m.time });
+    };
+    setTimeout(go, Math.max(0, Math.min(3000, m.at - Date.now())));
   });
   $('chatkeys').innerHTML = QUICK_CHAT.map((q, i) => `<span><kbd>${i + 1}</kbd> ${q}</span>`).join('');
+  // lien d'invitation : ?room=CODE
+  const room = new URLSearchParams(location.search).get('room');
+  if (room) { show('multi'); renderMulti(); $('m-joincode').value = room.toUpperCase(); if (settings.playerName && settings.playerName !== 'Joueur') join(room); else $('m-status').textContent = 'Choisis ton pseudo puis clique sur Rejoindre.'; }
 
   // retour à l'accueil quand le jeu revient au menu par le clavier
   setInterval(() => {
     if (game.state === 'menu' && !document.querySelector('.screen.on')) show('home');
-    document.body.classList.toggle('online', !!net.room);
+    document.body.classList.toggle('online', !!net.connected && game.mode === 'online');
   }, 300);
 }
 

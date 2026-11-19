@@ -115,7 +115,14 @@ function carBody(b, o) {
   const { len, w, paint, kind } = o;
   const L = len / 2, sill = o.sill ?? 0.3, belt = o.belt ?? 0.92, roofH = o.roof ?? 1.42;
   const trim = 0x18191b;
-  b.box('paint', paint, w, belt - sill, len - 0.08, 0, (belt + sill) / 2, 0, { r: 0.12 });
+  const gS = o.gFront ?? L * 0.35, gE = o.gRear ?? -L * 0.62;
+  if (o.hollow) {
+    const hh = belt - sill, cz0 = gS - 0.25, cz1 = Math.max(gE + 0.1, -L + 0.5);
+    b.box('paint', paint, w, hh, L - 0.04 - cz0, 0, (belt + sill) / 2, (L - 0.04 + cz0) / 2, { r: 0.1 });       // avant (moteur)
+    b.box('paint', paint, w, hh, cz1 - (-L + 0.04), 0, (belt + sill) / 2, (cz1 + (-L + 0.04)) / 2, { r: 0.1 }); // arrière
+    for (const sx of [-1, 1]) b.box('paint', paint, 0.06, hh, cz0 - cz1, sx * (w / 2 - 0.03), (belt + sill) / 2, (cz0 + cz1) / 2);
+    b.box('body', 0x1b1c1f, w - 0.1, 0.05, cz0 - cz1, 0, sill + 0.04, (cz0 + cz1) / 2);
+  } else b.box('paint', paint, w, belt - sill, len - 0.08, 0, (belt + sill) / 2, 0, { r: 0.12 });
   // capot / coffre légèrement bombés
   b.box('paint', paint, w * 0.94, 0.08, len * 0.3, 0, belt + 0.01, L - len * 0.17, { r: 0.04 });
   // habitacle vitré
@@ -132,10 +139,11 @@ function carBody(b, o) {
     b.box('body', trim, 0.06, 0.12, 0.2, sx * (w / 2 + 0.08), belt + 0.08, gStart - 0.15); // rétro
     // passages de roue
   }
-  // intérieur (vue cockpit)
-  b.box('body', 0x1d1e21, w * 0.84, 0.03, gl * 0.95, 0, belt + 0.005, gz);
-  b.box('body', 0x232427, w * 0.84, 0.22, 0.5, 0, belt + 0.08, gStart - 0.3, { r: 0.05 });
-  b.box('body', 0x2d2e33, 0.5, 0.5, 0.5, 0.38, belt - 0.05, gz - 0.25); b.box('body', 0x2d2e33, 0.5, 0.5, 0.5, -0.38, belt - 0.05, gz - 0.25);
+  if (!o.hollow) {
+    b.box('body', 0x1d1e21, w * 0.84, 0.03, gl * 0.95, 0, belt + 0.005, gz);
+    b.box('body', 0x232427, w * 0.84, 0.22, 0.5, 0, belt + 0.08, gStart - 0.3, { r: 0.05 });
+    b.box('body', 0x2d2e33, 0.5, 0.5, 0.5, 0.38, belt - 0.05, gz - 0.25); b.box('body', 0x2d2e33, 0.5, 0.5, 0.5, -0.38, belt - 0.05, gz - 0.25);
+  }
   // pare-chocs, calandre, bas de caisse
   b.box('body', trim, w * 0.98, 0.22, 0.18, 0, sill + 0.1, L - 0.05, { r: 0.06 });
   b.box('body', trim, w * 0.98, 0.22, 0.18, 0, sill + 0.1, -L + 0.05, { r: 0.06 });
@@ -157,7 +165,7 @@ export function buildPoliceCar(def, paintColor, opts = {}) {
   carBody(b, {
     len: def.len, w: def.w, paint: col, sill: isSuv ? 0.42 : 0.3, belt: isSuv ? 1.18 : 0.92, roof: isSuv ? 1.78 : (isWagon ? 1.5 : 1.42),
     gRear: isWagon || isSuv ? -def.len / 2 + 0.35 : undefined, roofFrac: isWagon || isSuv ? 0.85 : 0.6, roofShift: isWagon || isSuv ? 0.1 : 0.05, wagon: isWagon || isSuv,
-    screenSlope: isSuv ? 0.45 : undefined,
+    screenSlope: isSuv ? 0.45 : undefined, hollow: true,
   });
   const roofH = isSuv ? 1.78 : (isWagon ? 1.5 : 1.42);
   // pare-buffle
@@ -187,15 +195,24 @@ function truckCab(b, o) {
   const { w, front, paint, cabLen = 2.3, floor = 1.05, top = 3.35 } = o;
   const z0 = front - cabLen / 2, trim = 0x1a1b1d;
   const belt = floor + 0.95;
-  b.box('paint', paint, w, belt - floor, cabLen, 0, (floor + belt) / 2, z0, { r: 0.1 });
+  if (o.hollow) { // coque creuse : on voit le vrai intérieur
+    const hh = belt - floor, t = 0.07;
+    for (const sx of [-1, 1]) b.box('paint', paint, t, hh, cabLen, sx * (w / 2 - t / 2), (floor + belt) / 2, z0, { r: 0.03 });
+    b.box('paint', paint, w, hh, 0.1, 0, (floor + belt) / 2, front - 0.05, { r: 0.04 });
+    b.box('paint', paint, w, hh, 0.08, 0, (floor + belt) / 2, front - cabLen + 0.04);
+    b.box('body', 0x202124, w - 0.1, 0.06, cabLen - 0.1, 0, floor + 0.03, z0);
+  } else b.box('paint', paint, w, belt - floor, cabLen, 0, (floor + belt) / 2, z0, { r: 0.1 });
   // vitres : pare-brise + latérales
   b.wedge('glass', 0, w - 0.08, 0.95, cabLen - 0.25, 0, belt + 0.47, z0 - 0.08, 0.12);
   // montants
   for (const sx of [-1, 1]) {
     b.box('paint', paint, 0.1, 0.95, 0.12, sx * (w / 2 - 0.06), belt + 0.47, front - 0.13);
     b.box('paint', paint, 0.1, 0.95, 0.5, sx * (w / 2 - 0.06), belt + 0.47, z0 - cabLen / 2 + 0.35);
-    b.box('chrome', 0xbfc3c8, 0.06, 0.55, 0.22, sx * (w / 2 + 0.25), belt + 0.3, front - 0.35); // rétros
-    b.box('body', trim, 0.36, 0.05, 0.05, sx * (w / 2 + 0.1), belt + 0.6, front - 0.35);
+    if (!o.hollow) { // rétros simplifiés (les cabines détaillées ont de vrais miroirs, cf. interior.js)
+      b.box('body', trim, 0.08, 0.5, 0.22, sx * (w / 2 + 0.3), belt + 0.35, front - 0.2);
+      b.box('body', trim, 0.36, 0.04, 0.04, sx * (w / 2 + 0.13), belt + 0.58, front - 0.25);
+      b.box('body', trim, 0.36, 0.04, 0.04, sx * (w / 2 + 0.13), belt + 0.12, front - 0.25);
+    }
     b.box('body', trim, 0.5, 0.12, 0.7, sx * (w / 2 - 0.25), floor - 0.25, front - 0.6); // marchepieds
   }
   b.box('paint', paint, w - 0.02, 0.9, 0.35, 0, belt + 0.47, z0 - cabLen / 2 + 0.17); // paroi arrière
@@ -210,10 +227,12 @@ function truckCab(b, o) {
   b.box('orange', 0, 0.12, 0.08, 0.05, w * 0.47, floor + 0.05, front + 0.05);
   b.box('orange', 0, 0.12, 0.08, 0.05, -w * 0.47, floor + 0.05, front + 0.05);
   for (let i = -2; i <= 2; i++) b.box('orange', 0, 0.1, 0.05, 0.05, i * 0.22, top + 0.04, front - 0.1);
-  // intérieur
-  b.box('body', 0x1d1e21, w - 0.2, 0.03, cabLen - 0.4, 0, belt + 0.01, z0 - 0.1);
+  // intérieur simplifié (véhicules vus de loin) ; l'intérieur détaillé est dans interior.js
+  if (!o.hollow) b.box('body', 0x1d1e21, w - 0.2, 0.03, cabLen - 0.4, 0, belt + 0.01, z0 - 0.1);
+  if (!o.hollow) {
   b.box('body', 0x26272b, w - 0.2, 0.3, 0.55, 0, belt + 0.1, front - 0.45, { r: 0.05 });
   b.box('body', 0x303136, 0.6, 0.7, 0.6, w * 0.24, belt - 0.05, z0 - 0.35); b.box('body', 0x303136, 0.6, 0.7, 0.6, -w * 0.24, belt - 0.05, z0 - 0.35);
+  }
   return belt;
 }
 
@@ -227,7 +246,7 @@ export function buildPlayerTruck(def, paintColor) {
   const b = new Builder(), col = paintColor ?? def.color, w = def.w, front = def.len / 2;
   const deco = [];
   if (def.id === 'delivery') {
-    const belt = truckCab(b, { w, front, paint: col, cabLen: 2.0, floor: 1.0, top: 3.1 });
+    const belt = truckCab(b, { w, front, paint: col, cabLen: 2.0, floor: 1.0, top: 3.1, hollow: true });
     chassis(b, w, front - 1.0, -front + 0.3, 0.75);
     b.box('body', 0xf6f6f2, w + 0.02, 2.55, 5.1, 0, 2.15, -front + 2.55 + 0.05, { r: 0.04 });
     b.box('body', 0x9a9a98, w + 0.04, 0.08, 5.1, 0, 0.9, -front + 2.6);
@@ -235,7 +254,7 @@ export function buildPlayerTruck(def, paintColor) {
     b.box('body', 0x707274, 0.04, 2.4, 0.02, 0, 2.15, -front - 0.01);
     deco.push(['TRANS-EXPRESS', 'Livraison 24h/24', 5.0, 2.3, 2.15, -front + 2.6]);
   } else if (def.id === 'flatbed') {
-    truckCab(b, { w, front, paint: col, cabLen: 2.2, floor: 1.08, top: 3.3 });
+    truckCab(b, { w, front, paint: col, cabLen: 2.2, floor: 1.08, top: 3.3, hollow: true });
     chassis(b, w, front - 1.0, -front + 0.2, 0.8);
     const dz = -front + 3.4;
     b.box('body', 0x2b2c2f, w + 0.04, 0.2, 6.6, 0, 1.2, dz);
@@ -249,7 +268,7 @@ export function buildPlayerTruck(def, paintColor) {
     for (const z of [-2.2, -0.4, 1.4]) b.box('body', 0xe0a020, w + 0.06, 0.04, 0.06, 0, 2.78, dz + z); // sangles
     b.box('tail', 0, 0.3, 0.16, 0.05, w * 0.38, 0.95, -front - 0.02); b.box('tail', 0, 0.3, 0.16, 0.05, -w * 0.38, 0.95, -front - 0.02);
   } else { // semi : tracteur
-    truckCab(b, { w, front, paint: col, cabLen: 2.4, floor: 1.15, top: 3.55 });
+    truckCab(b, { w, front, paint: col, cabLen: 2.4, floor: 1.15, top: 3.55, hollow: true });
     chassis(b, w, front - 1.1, -front + 0.1, 0.85);
     b.cyl('body', 0x1c1c1c, 0.7, 0.7, 0.1, 0, 1.2, -1.15, { seg: 18 }); // sellette
     b.cyl('chrome', 0xc0c4c8, 0.09, 0.09, 1.6, w * 0.45, 3.1, front - 2.45); // échappement
@@ -313,13 +332,24 @@ export function buildTraffic(type, r) {
     b.box('tail', 0, 0.12, 0.5, 0.05, w * 0.45, 1.0, -L - 0.01); b.box('tail', 0, 0.12, 0.5, 0.05, -w * 0.45, 1.0, -L - 0.01);
     for (const sx of [-1, 1]) for (const sz of [1, -1]) wheel(sx * (w / 2 - 0.15), sz * (L - 1.0), 0.36);
   } else if (type.kind === 'truck') {
+    // semi articulé : tracteur (origine = centre, 6,2 m) + remorque séparée (origine = pivot d'attelage)
     const cab = [0xf2f2ee, 0x1f5fa8, 0xb0161e, 0x2b7a3d, 0xe0a020, 0x3a3d42][Math.floor(r() * 6)];
     const tc = r() < 0.5 ? 0xdcdcd8 : [0x1f3f6a, 0x7a1f1f, 0x2f5a3a, 0x5a5d62][Math.floor(r() * 4)];
-    truckCab(b, { w, front: L, paint: cab, cabLen: 2.3, floor: 1.1, top: 3.45 });
-    chassis(b, w, L - 1, -L + 0.3, 0.8);
-    b.box('body', tc, w + 0.02, 2.85, 13.2, 0, 2.55, -L + 6.7, { r: 0.04 });
-    b.box('tail', 0, 0.36, 0.16, 0.05, w * 0.38, 0.72, -L - 0.02); b.box('tail', 0, 0.36, 0.16, 0.05, -w * 0.38, 0.72, -L - 0.02);
-    for (const sx of [-1, 1]) { for (const z of [L - 1.4, L - 4.9, -L + 1.2, -L + 2.5, -L + 3.8]) wheel(sx * (w / 2 - 0.25), z, 0.5, 0.45); }
+    const F = 3.1;
+    truckCab(b, { w, front: F, paint: cab, cabLen: 2.3, floor: 1.1, top: 3.45 });
+    chassis(b, w, F - 1, -F + 0.2, 0.8);
+    b.cyl('body', 0x1c1c1c, 0.7, 0.7, 0.1, 0, 1.2, -1.15, { seg: 14 });
+    for (const sx of [-1, 1]) for (const z of [1.95, -1.75]) wheel(sx * (w / 2 - 0.25), z, 0.5, 0.45);
+    const b2 = new Builder();
+    b2.box('body', tc, w + 0.02, 2.85, 13.4, 0, 2.55, 1.2 - 6.7, { r: 0.04 });
+    b2.box('body', 0x1c1c1e, 0.9, 0.3, 12.4, 0, 0.95, -5.6);
+    b2.box('body', 0x3a3b3e, w * 0.9, 0.12, 0.12, 0, 0.55, -12.1);
+    b2.box('tail', 0, 0.36, 0.16, 0.05, w * 0.38, 0.72, -12.22); b2.box('tail', 0, 0.36, 0.16, 0.05, -w * 0.38, 0.72, -12.22);
+    for (let i = 0; i < 5; i++) b2.box('orange', 0, 0.06, 0.06, 0.05, w / 2 + 0.02, 1.05, -0.5 - i * 2.4);
+    const wheel2 = (x, z) => { b2.cyl('body', 0x141414, 0.5, 0.5, 0.45, x, 0.5, z, { rz: Math.PI / 2, seg: 12 }); b2.cyl('chrome', 0x9a9da2, 0.3, 0.3, 0.47, x, 0.5, z, { rz: Math.PI / 2, seg: 10 }); };
+    for (const sx of [-1, 1]) for (const z of [-8.4, -9.7, -11.0]) wheel2(sx * (w / 2 - 0.25), z);
+    const g = b.build(); g.userData.trailer = b2.build();
+    return g;
   } else { // bus / car
     const col = [0xf0f0ee, 0x1f5fa8, 0x2b7a3d, 0xd8d0b8][Math.floor(r() * 4)];
     b.box('paint', col, w, 2.9, len, 0, 2.05, 0, { r: 0.15 });
@@ -346,3 +376,21 @@ export function buildPerson(color = 0x1e3a6e) {
 }
 
 export { Builder };
+
+// Routier assis (équipage du mode coop) : tête et bras articulés pour les animations
+export function buildSeated(shirt = 0x3a5a8a, cap = 0xd8462b) {
+  const b = new Builder();
+  b.box('body', shirt, 0.46, 0.62, 0.3, 0, 0.31, 0, { r: 0.08 });
+  b.box('body', 0x2a2a30, 0.4, 0.18, 0.5, 0, -0.02, 0.18);
+  b.box('body', 0x2a2a30, 0.16, 0.5, 0.16, 0.11, -0.25, 0.42); b.box('body', 0x2a2a30, 0.16, 0.5, 0.16, -0.11, -0.25, 0.42);
+  const g = b.build();
+  const hb = new Builder();
+  hb.box('body', 0xe0b090, 0.24, 0.27, 0.25, 0, 0.13, 0, { r: 0.09 });
+  hb.box('body', cap, 0.27, 0.08, 0.28, 0, 0.29, 0); hb.box('body', cap, 0.22, 0.03, 0.14, 0, 0.26, 0.17);
+  hb.box('body', 0x5a3a22, 0.2, 0.06, 0.04, 0, 0.04, 0.125); // moustache
+  hb.box('body', 0x111111, 0.04, 0.035, 0.02, 0.06, 0.16, 0.128); hb.box('body', 0x111111, 0.04, 0.035, 0.02, -0.06, 0.16, 0.128);
+  const head = hb.build(); head.position.set(0, 0.62, 0); g.add(head);
+  const arm = () => { const ab = new Builder(); ab.box('body', shirt, 0.12, 0.5, 0.13, 0, -0.22, 0, { r: 0.04 }); ab.box('body', 0xe0b090, 0.1, 0.1, 0.1, 0, -0.5, 0); const a = ab.build(); return a; };
+  const armL = arm(), armR = arm(); armL.position.set(0.29, 0.56, 0); armR.position.set(-0.29, 0.56, 0); g.add(armL, armR);
+  return { group: g, head, armL, armR };
+}

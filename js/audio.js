@@ -163,4 +163,49 @@ export class Audio {
     });
   }
   radio() { this.oneShot(null, (C, dest, t) => { const s = C.createBufferSource(); s.buffer = this.noiseBuf; const f = C.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2000; const g = C.createGain(); g.gain.setValueAtTime(0.08, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.25); s.connect(f); f.connect(g); g.connect(dest); s.start(t, Math.random()); s.stop(t + 0.3); }); this.beep(1400, 0.08, 0.06); }
+
+  // ----- sons du mode coop -----
+  voiceBlip(freqs, dur, type = 'sawtooth', vol = 0.12, q = 3) {
+    this.oneShot(null, (C, dest, t) => {
+      const o = C.createOscillator(); o.type = type;
+      freqs.forEach((f, i) => o.frequency.setValueAtTime(f, t + i * dur / freqs.length));
+      const bp = C.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = q;
+      const g = C.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(bp); bp.connect(g); g.connect(dest); o.start(t); o.stop(t + dur + 0.05);
+    });
+  }
+  snore() {
+    this.oneShot(null, (C, dest, t) => {
+      const s = C.createBufferSource(); s.buffer = this.brownBuf; const f = C.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 400;
+      const lfo = C.createOscillator(); lfo.frequency.value = 28; const lg = C.createGain(); lg.gain.value = 0.15; lfo.connect(lg);
+      const g = C.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.5, t + 0.7); g.gain.linearRampToValueAtTime(0, t + 1.3);
+      lg.connect(g.gain); s.connect(f); f.connect(g); g.connect(dest); s.start(t); s.stop(t + 1.4); lfo.start(t); lfo.stop(t + 1.4);
+    });
+  }
+  hic() { this.voiceBlip([420, 900], 0.18, 'square', 0.16, 2); }
+  sneeze() { this.voiceBlip([300, 380, 460, 520], 0.6, 'sawtooth', 0.1, 2); setTimeout(() => this.oneShot(null, (C, dest, t) => { const s = C.createBufferSource(); s.buffer = this.noiseBuf; const f = C.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 1500; const g = C.createGain(); g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35); s.connect(f); f.connect(g); g.connect(dest); s.start(t); s.stop(t + 0.4); }), 600); }
+  slap() { this.oneShot(null, (C, dest, t) => { const s = C.createBufferSource(); s.buffer = this.noiseBuf; const f = C.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2500; f.Q.value = 0.8; const g = C.createGain(); g.gain.setValueAtTime(0.7, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.12); s.connect(f); f.connect(g); g.connect(dest); s.start(t, Math.random()); s.stop(t + 0.15); }); }
+  sing() { const notes = [262, 330, 392, 349, 311, 262, 233, 262]; notes.forEach((n, i) => setTimeout(() => this.voiceBlip([n * (1 + (Math.random() - 0.5) * 0.08)], 0.38, 'sawtooth', 0.09, 4), i * 380)); }
+  buzz(on) {
+    if (!this.ctx) return;
+    if (on && !this._buzz) { const C = this.ctx, o = C.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 210; const l = C.createOscillator(); l.frequency.value = 9; const lg = C.createGain(); lg.gain.value = 40; l.connect(lg); lg.connect(o.frequency); const f = C.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 600; const g = C.createGain(); g.gain.value = 0.06; o.connect(f); f.connect(g); g.connect(this.bus); o.start(); l.start(); this._buzz = { o, l, g }; }
+    if (!on && this._buzz) { try { this._buzz.o.stop(); this._buzz.l.stop(); } catch (e) { } this._buzz = null; }
+  }
+  // radio de la cabine : petites boucles synthétisées
+  music(id) {
+    if (!this.ctx) return;
+    clearInterval(this._mus); this._mus = null; this.musStep = 0;
+    if (!id || id === 'off') return;
+    const C = this.ctx, bpm = id === 'techno' ? 132 : id === 'musette' ? 150 : 76, step = 60 / bpm / (id === 'musette' ? 1 : 2);
+    const mel = { berceuse: [523, 0, 440, 0, 392, 0, 440, 0, 523, 523, 587, 0, 523, 0, 0, 0], musette: [392, 494, 587, 392, 494, 587, 440, 523, 659, 440, 523, 659, 392, 494, 587, 587] }[id];
+    const tone = (f, d, type, vol, at) => { const o = C.createOscillator(); o.type = type; o.frequency.value = f; const g = C.createGain(); g.gain.setValueAtTime(vol, at); g.gain.exponentialRampToValueAtTime(0.0001, at + d); o.connect(g); g.connect(this.bus); o.start(at); o.stop(at + d + 0.02); };
+    this._mus = setInterval(() => {
+      const t = C.currentTime + 0.05, i = this.musStep++ % 16;
+      if (id === 'techno') {
+        if (i % 4 === 0) { const o = C.createOscillator(); o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.15); const g = C.createGain(); g.gain.setValueAtTime(0.35, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2); o.connect(g); g.connect(this.bus); o.start(t); o.stop(t + 0.22); }
+        if (i % 4 === 2) { const s = C.createBufferSource(); s.buffer = this.noiseBuf; const f = C.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 7000; const g = C.createGain(); g.gain.setValueAtTime(0.08, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05); s.connect(f); f.connect(g); g.connect(this.bus); s.start(t, Math.random()); s.stop(t + 0.06); }
+        tone([55, 55, 65, 49][Math.floor(i / 4)] * (i % 2 ? 2 : 1), 0.12, 'sawtooth', 0.06, t);
+      } else { const f = mel[i]; if (f) tone(f, step * (id === 'berceuse' ? 1.8 : 0.9), id === 'berceuse' ? 'sine' : 'square', id === 'berceuse' ? 0.07 : 0.035, t); if (id === 'musette' && i % 3 === 0) tone(98, 0.2, 'triangle', 0.08, t); }
+    }, step * 1000);
+  }
 }

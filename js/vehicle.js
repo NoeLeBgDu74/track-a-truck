@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { VEHICLES, clamp, worldToRoad } from './config.js';
 import { buildPoliceCar, buildPlayerTruck, buildTrailer, makeWheel, MAT } from './models.js';
+import { Interior } from './interior.js';
 
 const _q = new THREE.Quaternion(), _f = new THREE.Vector3(), _u = new THREE.Vector3(), _r = new THREE.Vector3(), _v = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
@@ -29,7 +30,7 @@ export class Vehicle {
     this.body = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(x, bodyY + 0.08, z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
       .setLinearDamping(0.0).setAngularDamping(0.6).setCcdEnabled(true).setCanSleep(false));
     for (const [hx, hy, hz, px, py, pz, frac] of colliderSet(def)) {
-      world.createCollider(R.ColliderDesc.cuboid(hx, hy, hz).setTranslation(px, py - bodyY, pz).setMass(def.mass * frac).setFriction(0.35).setRestitution(0.15), this.body);
+      world.createCollider(R.ColliderDesc.cuboid(hx, hy, hz).setTranslation(px, py - bodyY, pz).setMass(def.mass * frac).setFriction(0.35).setRestitution(0.02), this.body);
     }
     const vc = this.vc = world.createVehicleController(this.body);
     vc.indexUpAxis = 1; vc.setIndexForwardAxis = 2;
@@ -97,6 +98,15 @@ export class Vehicle {
     // remorque
     if (def.trailer) this.makeTrailer(x, z, yaw);
     this.lightT = Math.random() * 3;
+    this.accL = new THREE.Vector3();
+    if (opts.interior) this.addInterior();
+  }
+
+  addInterior() {
+    if (this.interior) return;
+    this.interior = new Interior(this);
+    this.model.group.add(this.interior.group);
+    this.steeringWheel.visible = false;
   }
 
   makeTrailer(x, z, yaw) {
@@ -106,7 +116,7 @@ export class Vehicle {
     const body = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(x + off.x, ty + 0.08, z + off.z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
       .setAngularDamping(0.5).setCanSleep(false));
     const zc = 1.2 - t.len / 2;
-    world.createCollider(R.ColliderDesc.cuboid(t.w / 2, 1.4, t.len / 2).setTranslation(0, 2.6 - ty, zc).setMass(t.mass * 0.25).setFriction(0.35), body);
+    world.createCollider(R.ColliderDesc.cuboid(t.w / 2, 1.33, t.len / 2 - 0.1).setTranslation(0, 2.68 - ty, zc - 0.1).setMass(t.mass * 0.25).setFriction(0.35), body);
     world.createCollider(R.ColliderDesc.cuboid(t.w / 2 - 0.2, 0.2, (t.len - 3.2) / 2).setTranslation(0, 1.45 - ty, zc - 1.6).setMass(t.mass * 0.75).setFriction(0.35), body);
     const vc = world.createVehicleController(body);
     vc.indexUpAxis = 1; vc.setIndexForwardAxis = 2;
@@ -120,7 +130,7 @@ export class Vehicle {
     }
     const jd = R.JointData.spherical({ x: 0, y: 1.25 - this.bodyY, z: t.kingpin }, { x: 0, y: 1.25 - ty, z: 0 });
     const joint = world.createImpulseJoint(jd, this.body, body, true);
-    joint.setContactsEnabled(false);
+    joint.setContactsEnabled(true); // la remorque est solide : on ne traverse plus sa propre remorque en portefeuille
     const model = buildTrailer(def);
     const mesh = new THREE.Group(); model.group.position.y = -ty; mesh.add(model.group);
     const wm = wheels.map(() => { const m = makeWheel(r, 0.4); mesh.add(m); return m; });
@@ -170,7 +180,8 @@ export class Vehicle {
     const wet = env.wet || 0;
     const brakeF = brkIn * this.mass * 8.5;
     const roll = this.thr < 0.02 && brkIn < 0.02 ? this.mass * (aspd < 1.2 ? 4 : 0.25) : 0;
-    const gripMul = (1 - wet * 0.22) * (this.spikes > 0 ? 0.55 : 1);
+    if (this.oil > 0) this.oil -= dt;
+    const gripMul = (1 - wet * 0.22) * (this.spikes > 0 ? 0.55 : 1) * (this.oil > 0 ? 0.18 : 1);
     this.wheelDefs.forEach((w, i) => {
       if (w.front) vc.setWheelSteering(i, this.steer);
       vc.setWheelFrictionSlip(i, def.grip * gripMul * (this.handbrake && !w.front ? 0.6 : 1));
@@ -230,11 +241,24 @@ export class Vehicle {
     this.curPos.set(p.x, p.y, p.z); this.curQuat.set(q.x, q.y, q.z, q.w);
     _v.set(v.x, v.y, v.z);
     const dv = _v.distanceTo(this.lastV);
+    if (dt > 0) { // accélération ressentie dans la cabine (repère véhicule)
+      _f.copy(_v).sub(this.lastV).divideScalar(dt).applyQuaternion(_q.set(q.x, q.y, q.z, q.w).invert());
+      _f.clampLength(0, 40);
+      this.accL.lerp(_f, 0.15);
+    }
     this.lastV.copy(_v);
     this.impact = 0;
     if (dv > 1.1 && this.alive !== false) {
       const k = this.def.team === 'truck' ? 1.4 : (this.ai ? 1.6 : 2.0);
       this.impact = dv;
+      // un choc ne fait pas décoller un véhicule de plusieurs tonnes : on borne la vitesse verticale et le cabrage
+      const lv = b.linvel(), av = b.angvel();
+      if (lv.y > 1.0) b.setLinvel({ x: lv.x, y: 1.0, z: lv.z }, true);
+      const up = _u.set(0, 1, 0).applyQuaternion(_q.set(q.x, q.y, q.z, q.w));
+      const ay = av.x * up.x + av.y * up.y + av.z * up.z, MAXR = 1.2;
+      const px = av.x - up.x * ay, py = av.y - up.y * ay, pz = av.z - up.z * ay, pr = Math.hypot(px, py, pz);
+      if (pr > MAXR) { const k = MAXR / pr; b.setAngvel({ x: up.x * ay + px * k, y: up.y * ay + py * k, z: up.z * ay + pz * k }, true); }
+      if (this.trailer) { const tv = this.trailer.body.linvel(); if (tv.y > 1.0) this.trailer.body.setLinvel({ x: tv.x, y: 1.0, z: tv.z }, true); }
       this.damage = Math.min(100, this.damage + (dv - 1.1) * k);
       if (this.damage >= 100 && !this.disabled) { this.disabled = true; this.game.onDisabled?.(this); }
     }

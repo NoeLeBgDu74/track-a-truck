@@ -12,7 +12,7 @@ export class Input {
     addEventListener('keyup', e => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
     const cv = document.getElementById('c');
-    cv.addEventListener('mousedown', e => { this.mouse.down = true; this.mouse.btn = e.button; });
+    cv.addEventListener('mousedown', e => { this.mouse.down = true; this.mouse.btn = e.button; this.mouse.clicked = true; });
     addEventListener('mouseup', () => this.mouse.down = false);
     addEventListener('mousemove', e => { if (this.mouse.down || document.pointerLockElement) { this.mouse.dx += e.movementX; this.mouse.dy += e.movementY; } });
     cv.addEventListener('wheel', e => { this.mouse.wheel += Math.sign(e.deltaY); e.preventDefault(); }, { passive: false });
@@ -21,7 +21,7 @@ export class Input {
   }
   down(...codes) { return codes.some(c => this.keys.has(c)); }
   hit(code) { return this.pressed.has(code); }
-  endFrame() { this.pressed.clear(); this.mouse.dx = 0; this.mouse.dy = 0; this.mouse.wheel = 0; }
+  endFrame() { this.pressed.clear(); this.mouse.dx = 0; this.mouse.dy = 0; this.mouse.wheel = 0; this.mouse.clicked = false; }
 
   drive() {
     let throttle = this.down('KeyW', 'ArrowUp') ? 1 : 0, brake = this.down('KeyS', 'ArrowDown') ? 1 : 0;

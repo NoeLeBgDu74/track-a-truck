@@ -436,9 +436,11 @@ export class World {
     for (let s = Math.ceil(a / 30) * 30; s < b; s += 30) {
       if (s < ra.s0 + 20 || s > ra.s1 - 20 || r() < 0.35) continue;
       const t = buildTraffic(TRAFFIC_TYPES[3], r); roadToWorld(s, -30, _p);
-      t.position.set(_p.x, 0, _p.z); t.rotation.y = roadYaw(s) + 0.5; g.add(t);
       const yaw = roadYaw(s) + 0.5;
-      this.phys.createCollider(this.R.ColliderDesc.cuboid(1.3, 2, 8.3).setTranslation(_p.x, 2, _p.z).setRotation(qYaw(yaw)), c.body);
+      t.position.set(_p.x, 0, _p.z); t.rotation.y = yaw; g.add(t);
+      if (t.userData.trailer) { const tr = t.userData.trailer; tr.position.set(0, 0, -1.15); t.add(tr); }
+      const cxp = _p.x - Math.sin(yaw) * 5.1, czp = _p.z - Math.cos(yaw) * 5.1;
+      this.phys.createCollider(this.R.ColliderDesc.cuboid(1.3, 2, 8.3).setTranslation(cxp, 2, czp).setRotation(qYaw(yaw)), c.body);
     }
     for (let s = Math.ceil(a / 40) * 40; s < b; s += 40) if (s > ra.s0 && s < ra.s1) { roadToWorld(s, -19.5, _p); c.glows.push([_p.x, 8, _p.z]); const p = add(new THREE.CylinderGeometry(0.1, 0.12, 8, 6), this.postMat); p.position.set(_p.x, 4, _p.z); }
   }
