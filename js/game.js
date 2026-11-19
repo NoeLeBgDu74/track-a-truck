@@ -335,14 +335,15 @@ export class Game {
     this.audio.updatePlayer(playing ? pv : null, dt, { cockpit: this.camRig.mode === 'cockpit', wet: this.env.wet, rain: this.env.rainAmt, tunnel: this.env.tunnel, trafficNear: this.traffic.near(camPos, 60).n });
     const fwd = _v.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
     this.audio.setListener(camPos, fwd);
-    for (const p of this.police) this.audio.updateSiren(p.v, p.v.siren && !p.v.disabled && this.state !== 'menu', p.v === this.player);
+    const tkY = this.targetTruck?.();
+    for (const p of this.police) { p.v.yelp = tkY && p.v !== tkY && p.v.curPos.distanceToSquared(tkY.curPos) < 60 * 60; this.audio.updateSiren(p.v, p.v.siren && !p.v.disabled && this.state !== 'menu', p.v === this.player); }
     for (const r of this.remotes.values()) this.audio.updateSiren(r, r.siren);
 
     if (['play', 'countdown', 'end'].includes(this.state)) this.hud.update(this);
     if (this.coop) this.coop.render();
     // rétroviseurs réels quand on est dans la cabine
     const pv2 = this.player;
-    if (pv2?.interior && !this.person && (this.camRig.mode === 'cockpit' || (this.coop && this.coopMyRole() === 'cop')) && ['play', 'countdown', 'end'].includes(this.state)) pv2.interior.renderMirrors(this.renderer, this.scene);
+    if (pv2?.interior && !this.person && (this.camRig.mode === 'cockpit' || (this.coop && this.coopMyRole() === 'cop')) && ['play', 'countdown', 'end'].includes(this.state)) { this.mirFrame = (this.mirFrame || 0) + 1; if (settings.quality === 'high' || (settings.quality === 'medium' && this.mirFrame % 2 === 0)) pv2.interior.renderMirrors(this.renderer, this.scene); }
   }
 
 

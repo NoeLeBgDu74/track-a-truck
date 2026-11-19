@@ -24,7 +24,7 @@ export class Audio {
     this.squeal = this.loopNoise(this.noiseBuf, 'bandpass', 2200, 0, 9);
     // klaxon joueur
     this.hornG = C.createGain(); this.hornG.gain.value = 0; this.hornG.connect(this.bus);
-    for (const f of [370, 466]) { const o = C.createOscillator(); o.type = 'square'; o.frequency.value = f; const lp = C.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1800; o.connect(lp); lp.connect(this.hornG); o.start(); }
+    this.hornOsc = [370, 466].map(f => { const o = C.createOscillator(); o.type = 'square'; o.frequency.value = f; const lp = C.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1800; o.connect(lp); lp.connect(this.hornG); o.start(); return o; });
   }
 
   setVolume(v) { if (this.master) this.master.gain.value = v; }
@@ -81,6 +81,7 @@ export class Audio {
       this.windN.g.gain.setTargetAtTime(clamp(sp / 55) ** 2 * (ctx.cockpit ? 0.12 : 0.3), t, 0.2);
       this.windN.f.frequency.setTargetAtTime(400 + sp * 15, t, 0.2);
       this.squeal.g.gain.setTargetAtTime(ctx.wet > 0.5 ? 0 : clamp(v.slip) * 0.22, t, 0.05);
+      if (this.hornOsc && this.hornKind !== v.def.team) { this.hornKind = v.def.team; const fr = v.def.team === 'truck' ? [185, 233] : [370, 466]; this.hornOsc.forEach((o, i) => o.frequency.setValueAtTime(fr[i], t)); } // klaxon à air grave pour les poids lourds
       this.hornG.gain.setTargetAtTime(v.horn ? 0.16 : 0, t, 0.02);
     }
     this.rainN.g.gain.setTargetAtTime(ctx.rain * (ctx.cockpit ? 0.35 : 0.22) * (1 - ctx.tunnel), t, 0.4);
@@ -109,11 +110,13 @@ export class Audio {
       const g = C.createGain(); g.gain.value = 0;
       const p = C.createPanner(); p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = 12; p.rolloffFactor = 1.1;
       o.connect(f); f.connect(g); g.connect(p); p.connect(this.bus); o.start(); lfo.start();
-      s = { o, lfo, g, p }; this.sirens.set(veh, s);
+      s = { o, lfo, g, p, lg }; this.sirens.set(veh, s);
     }
     const t = C.currentTime, pos = veh.pos;
     if (s.p.positionX) { s.p.positionX.setValueAtTime(pos.x, t); s.p.positionY.setValueAtTime(pos.y + 1.5, t); s.p.positionZ.setValueAtTime(pos.z, t); } else s.p.setPosition(pos.x, pos.y, pos.z);
     s.g.gain.setTargetAtTime(local ? 0.09 : 0.22, t, 0.1);
+    // « yelp » rapide quand la voiture est au contact du suspect, « wail » lent sinon
+    const yelp = !!veh.yelp; if (s.yelp !== yelp) { s.yelp = yelp; s.lfo.frequency.setTargetAtTime(yelp ? 3.2 : 0.42, t, 0.2); s.lg.gain.setTargetAtTime(yelp ? 300 : 380, t, 0.2); }
   }
   stopAllSirens() { for (const [k, s] of this.sirens) { s.g.gain.value = 0; try { s.o.stop(); s.lfo.stop(); } catch (e) { } } this.sirens.clear(); }
 
