@@ -115,7 +115,7 @@ export class Interior {
     K.box(m.rubber, W * 2, 0.04, 0.04, 0, B + 0.06, front - 0.02, 0, 0, 0);
     // colonne + volant
     // volant face au conducteur, sous le combiné (on lit les compteurs au-dessus de la jante)
-    const wheelY = eyeY - (this.truck ? 0.56 : 0.36), wheelZ = cab.z + (this.truck ? 0.56 : 0.47), tilt = this.truck ? -0.6 : -0.32;
+    const wheelY = eyeY - (this.truck ? 0.47 : 0.36), wheelZ = cab.z + (this.truck ? 0.5 : 0.47), tilt = this.truck ? -0.72 : -0.32;
     const colDir = new THREE.Vector3(0, -Math.sin(-tilt) * 0 - 0.55, 0.83).normalize(), colL = this.truck ? 0.55 : 0.4;
     K.cyl(m.leather, 0.045, 0.06, colL, dx, wheelY + colDir.y * colL / 2, wheelZ + colDir.z * colL / 2, Math.atan2(colDir.z, colDir.y), 0, 0);
     K.box(m.leather, 0.16, 0.12, 0.14, dx, wheelY + colDir.y * colL * 0.9, wheelZ + colDir.z * colL * 0.9, 0, 0, 0, 0.03); // carénage de colonne
