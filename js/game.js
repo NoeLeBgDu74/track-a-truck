@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import {
   VEHICLES, TEAM_VEHICLES, PAINTS, settings, saveSettings, laneD, SHOULDER_D, roadToWorld, roadYaw, worldToRoad, DEST, DEST_S,
-  inTunnel, clamp, rng, fmtTime, REST_AREAS, EXIT_GAP, TUNNELS, MISSIONS, profile, saveProfile, D77, EXIT15,
+  inTunnel, clamp, rng, fmtTime, REST_AREAS, EXIT_GAP, TUNNELS, MISSIONS, profile, saveProfile, D77, EXIT15, YARD_END, YARD_START,
 } from './config.js';
 import { Voice } from './voice.js';
 import { World } from './world.js';
@@ -48,6 +48,8 @@ export class Game {
     this.time = 0; this.acc = 0; this.menuS = 120; this.bust = 0; this.stats = { crashes: 0, topSpeed: 0, dist: 0 };
     this.mirror = false; this.coop = null; this.confuseT = 0; this.said = {}; this.heat = 0; this.slow = 0; this.slowCd = 0; this.cartons = []; this.cheeses = [];
     this.heli = this.buildHeli();
+    this.world.gamePlayer = () => this.player;
+    this.bayMark = this.buildBayMark();
     this.lightsSetup();
     this.applyQuality();
     this.env.setTime(settings.time); this.env.setWeather(settings.weather);
@@ -92,8 +94,8 @@ export class Game {
     for (const v of this.vehicles) v.dispose();
     this.vehicles = []; this.police = []; this.fugitives = []; this.spikes.forEach(s => this.scene.remove(s.mesh)); this.spikes = [];
     this.bananas.forEach(b => this.scene.remove(b.mesh)); this.bananas = [];
-    this.cartons?.forEach(c => { this.scene.remove(c.mesh); this.phys.removeRigidBody(c.body); }); this.cartons = [];
-    this.mirrorProps?.forEach(m => this.scene.remove(m)); this.mirrorProps = []; this.heliTarget = null; this.heliT = 0;
+    this.cartons?.forEach(c => { this.scene.remove(c.mesh); this.phys.removeRigidBody(c.body); }); this.cartons = []; this.slicks?.forEach(sl => this.scene.remove(sl.mesh)); this.slicks = []; this.smokeT = null; this.parkInfo = null; this.parkHint = false; if (this.bayMark) this.bayMark.visible = false;
+    this.mirrorProps?.forEach(m => this.scene.remove(m)); this.mirrorProps = []; this.bubbleList?.forEach(b => this.scene.remove(b.sp)); this.bubbleList = []; this.heliTarget = null; this.heliT = 0;
     if (this.heli) { this.heli.visible = false; this.heliOn = false; this.heliSpot.intensity = 0; } this.audio.rotor?.(0); this.slow = 0; document.body.classList.remove('slowmo'); this.allies = []; this.mission = null; Voice.stop();
     if (this.person) this.leaveFoot(true);
     this.player = null; this.bust = 0; this.audio.stopAllSirens?.(); this.audio.music?.('off'); this.audio.buzz?.(false);
@@ -121,9 +123,10 @@ export class Game {
     works.push({ s0: 2700 + r() * 400, dir: -1, lane: 2 });
     works.push({ s0: 6500 + r() * 300, dir: 1, lane: 2 });
     works.forEach(w => w.s1 = w.s0 + 220 + r() * 140);
+    this.world.targetBay = Math.floor(r() * YARD_END.bays.length);
     for (const k of [...this.world.chunks.keys()]) this.world.unload(k);
     this.world.setRoadworks(works);
-    this.lastCfg = cfg;
+    this.lastCfg = cfg; this.parkT = 0;
     this.time = 0; this.timeLeft = (M?.limit ?? diff.time) + (cfg.mode === 'coop' ? 120 : 0); this.timeTotal = this.timeLeft;
     this.heat = (M?.heat || 0) * 20; this.cargo = 100; this.allies = []; this.playerArrived = false; this.nextBlock = 75; this.heliOn = false; this.heliT = 0; this.headStart = this.team === 'truck' ? 15 : 10; this.released = false;
     this.stats = { crashes: 0, topSpeed: 0, dist: 0, start: 0, busts: 0 };
@@ -137,6 +140,8 @@ export class Game {
     let ps = 0, pd = laneD(1, 2);
     if (this.team === 'police' && cfg.mode === 'chase') { ps = -90; pd = SHOULDER_D(1); }
     if (cfg.mode === 'free') ps = 40;
+    const fromYard = this.team === 'truck' && (cfg.mode === 'chase' || cfg.mode === 'coop');
+    if (fromYard) { ps = -385; pd = -62; } // départ dans la cour du dépôt MégaCorp
     if (cfg.mode === 'online') { const k = [...this.net.players.keys(), this.net.id].sort().indexOf(this.net.id); ps = (cfg.team === 'police' ? -90 : 0) - k * 14; pd = laneD(1, k % 3); }
     this.stats.start = ps;
     this.world.update(ps - 300, ps + 600, new THREE.Vector3(0, 0, ps), 0, true);
@@ -147,7 +152,7 @@ export class Game {
     if (cfg.mode === 'chase' || cfg.mode === 'coop') {
       if (this.team === 'truck') {
         const n = Math.min(2, diff.police);
-        for (let i = 0; i < n; i++) this.addPolice(-70 - i * 22, SHOULDER_D(1), 'idle');
+        for (let i = 0; i < n; i++) this.addPolice(-760 - i * 22, SHOULDER_D(1), 'idle');
       } else {
         const tid = ['semi', 'flatbed', 'delivery'][Math.floor(r() * 3)];
         const fv = this.addVehicle(tid, 30, laneD(1, 1), { ai: true, name: 'Suspect' });
@@ -158,7 +163,7 @@ export class Game {
     }
     if (M?.obj === 'convoy') {
       for (const [id, ds] of [['flatbed', -34], ['delivery', -62]]) {
-        const v = this.addVehicle(id, ps + ds, laneD(1, 1), { ai: true, name: id === 'flatbed' ? 'Plateau de Dédé' : 'Porteur de Jojo' });
+        const v = this.addVehicle(id, ps + ds, pd + 4, { ai: true, name: id === 'flatbed' ? 'Plateau de Dédé' : 'Porteur de Jojo' });
         const ai = new AIDriver(this, v, 'flee'); ai.lane = 1; ai.useBis = false; this.allies.push({ v, ai, status: 'run', bust: 0 });
       }
     }
@@ -546,7 +551,7 @@ export class Game {
         else this.radio('Le suspect a roulé sur la herse !', 'pol');
       }
     }
-    this.bananaStep(dt); this.propsStep(dt); this.heliStep(dt);
+    this.bananaStep(dt); this.propsStep(dt); this.heliStep(dt); this.bubblesStep(dt); this.updateBayMark(); this.gadgetsStep(dt);
     if (this.coop && (this.state === 'play')) this.coop.update(dt, pl);
     if (this.state === 'play') { this.rules(dt); this.nearMiss(dt); }
     if (pl) {
@@ -586,7 +591,7 @@ export class Game {
   coopPad() {
     const pads = navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : [];
     const gp = pads[1] || (this.coopMyRole() === 'cop' ? pads[0] : null); if (!gp) return;
-    const map = { 0: 'sandwich', 1: 'coffee', 2: 'slap', 3: 'radio', 4: 'banana', 5: 'cb', 8: 'swap', 9: 'roof' };
+    const map = { 0: 'sandwich', 1: 'coffee', 2: 'slap', 3: 'radio', 4: 'banana', 5: 'cb', 6: 'oil', 7: 'nails', 8: 'swap', 9: 'roof', 10: 'smoke' };
     this.padPrev ||= [];
     gp.buttons.forEach((b, i) => { if (b.pressed && !this.padPrev[i]) { if (Mini.on) Mini.pad(); else if (map[i]) this.coopAct(map[i]); } });
     this.padPrev = gp.buttons.map(b => b.pressed);
@@ -597,7 +602,7 @@ export class Game {
     if (Mini.on) { if (inp.hit('Space') || inp.hit('Enter') || ACTIONS.some(a => inp.hit('Digit' + a.k))) Mini.pad(); return; }
     if (inp.hit('Tab')) this.coopAct('swap');
     if (role === 'drv' && this.coopKind === 'online') return; // en ligne, seul le copilote gère la cabine
-    ACTIONS.forEach(a => { if (inp.hit('Digit' + a.k) || inp.hit('Numpad' + a.k)) this.coopAct(a.id); });
+    ACTIONS.forEach(a => { if (inp.hit(a.code || 'Digit' + a.k) || inp.hit('Numpad' + a.k)) this.coopAct(a.id); });
   }
   coopAct(id, skipMini) {
     if (!this.coop) return;
@@ -716,6 +721,85 @@ export class Game {
     const lane = clamp(Math.round((Math.abs(v.road.d) - 3) / 3.6), 0, 2);
     v.resetOnRoad(v.road.s, laneD(1, lane));
     if (this.mode === 'chase' || this.mode === 'coop') { this.timeLeft -= 5; this.hud.toast('Repositionnement (−5 s)'); }
+  }
+
+  // ---------- gadgets du copilote : huile, clous, fumigène ----------
+  dropGadget(kind, v) {
+    const back = v.trailer ? _v.set(0, 0, -v.def.trailer.len + 0.5).applyQuaternion(v.trailer.curQuat).add(v.trailer.curPos) : _v.set(0, 0, -v.def.len / 2 - 1).applyQuaternion(v.curQuat).add(v.curPos);
+    const yaw = v.yaw;
+    if (kind === 'smoke') { this.smokeT = { t: 6, v }; return; }
+    let mesh;
+    if (kind === 'oil') {
+      mesh = new THREE.Mesh(new THREE.CircleGeometry(3.2, 24), this._oilMat ||= new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.04, metalness: 0.7, transparent: true, opacity: 0.88 }));
+      mesh.rotation.x = -Math.PI / 2; mesh.scale.set(1.4, 0.8, 1); mesh.rotation.z = -yaw; mesh.position.set(back.x, 0.04, back.z);
+    } else {
+      mesh = new THREE.Group(); const nm = this._nailMat ||= new THREE.MeshStandardMaterial({ color: 0x9aa0a8, metalness: 0.9, roughness: 0.3 });
+      for (let i = 0; i < 60; i++) { const n = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.12, 4), nm); n.position.set((Math.random() - 0.5) * 7, 0.06, (Math.random() - 0.5) * 2); n.rotation.set(Math.random(), Math.random(), Math.random()); mesh.add(n); }
+      mesh.position.set(back.x, 0, back.z); mesh.rotation.y = yaw;
+    }
+    this.scene.add(mesh);
+    (this.slicks ||= []).push({ kind, mesh, x: back.x, z: back.z, t: 0, r: kind === 'oil' ? 4 : 3.6, owner: v });
+  }
+  gadgetsStep(dt) {
+    if (this.smokeT && this.smokeT.t > 0) {
+      const v = this.smokeT.v; this.smokeT.t -= dt;
+      const back = v.trailer ? _v.set(0, 2, -v.def.trailer.len).applyQuaternion(v.trailer.curQuat).add(v.trailer.curPos) : _v.set(0, 1.5, -v.def.len / 2 - 1).applyQuaternion(v.curQuat).add(v.curPos);
+      for (let i = 0; i < 4; i++) this.particles.emit(back.x + (Math.random() - 0.5) * 3, back.y, back.z + (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, Math.random() * 1.5, (Math.random() - 0.5) * 3, 5, 2.5, 4, 0xb8bcc4, 0.55);
+      for (const p of this.police) if (p.ai && p.v.curPos.distanceTo(back) < 45 && p.v.road.s < v.road.s) { if (!(p.v.blindT > 0)) this.say('smoke' + p.v.unit, `${p.v.name} : « Je ne vois plus rien ! C’est quoi cette fumée ?! »`, 8); p.v.blindT = 3; }
+    }
+    if (!this.slicks) return;
+    for (const sl of this.slicks) {
+      sl.t += dt;
+      for (const v of this.vehicles) {
+        if (v === sl.owner && sl.t < 2) continue;
+        const dx = v.curPos.x - sl.x, dz = v.curPos.z - sl.z; if (dx * dx + dz * dz > sl.r * sl.r) continue;
+        if (sl.kind === 'oil' && !(v.oil > 0)) { v.oil = 2.8; v.body.applyTorqueImpulse({ x: 0, y: (Math.random() < 0.5 ? -1 : 1) * v.mass * 2.2, z: 0 }, true); if (v.isPolice && v !== this.player) this.say('oil' + v.unit, `${v.name} : « De l’HUILE ?! Je glisse, je glisse ! »`, 5); }
+        if (sl.kind === 'nails' && v.isPolice && !v.flat) { v.flat = 1; v.spikes = 1; this.audio.crash(v.curPos, 2); if (v !== this.player) this.say('nail' + v.unit, `${v.name} : « Crevaison ! J’ai roulé sur des clous ! »`, 5); }
+      }
+      if (sl.t > 75) sl.dead = true;
+    }
+    this.slicks = this.slicks.filter(sl => { if (sl.dead) this.scene.remove(sl.mesh); return !sl.dead; });
+  }
+
+  // ---------- marqueur du quai de livraison ----------
+  buildBayMark() {
+    const g = new THREE.Group();
+    const rect = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 20), new THREE.MeshBasicMaterial({ color: 0x40ff90, transparent: true, opacity: 0.28, depthWrite: false })); rect.rotation.x = -Math.PI / 2; rect.position.y = 0.06; g.add(rect);
+    const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(4.6, 0.01, 20)), new THREE.LineBasicMaterial({ color: 0x40ff90 })); edge.position.y = 0.07; g.add(edge);
+    const arrow = new THREE.Mesh(new THREE.ConeGeometry(1.2, 2.4, 4), new THREE.MeshBasicMaterial({ color: 0x40ff90 })); arrow.rotation.x = Math.PI; arrow.position.y = 7; g.add(arrow); g.userData.arrow = arrow;
+    g.visible = false; this.scene.add(g); return g;
+  }
+  updateBayMark() {
+    const m = this.bayMark, on = this.team === 'truck' && this.player && ['play', 'countdown', 'end'].includes(this.state) && this.mode !== 'free' && this.mode !== 'online' && this.player.road.s > DEST.s0 - 900;
+    m.visible = !!on; if (!on) return;
+    const bs = YARD_END.bays[this.world.targetBay], p = this.roadPose(bs, YARD_END.whD0 + 10.5);
+    m.position.set(p.x, 0, p.z); m.rotation.y = p.yaw; m.userData.arrow.position.y = 7 + Math.sin(this.time * 3) * 0.6; m.userData.arrow.rotation.y += 0.03;
+    m.children[0].material.opacity = this.parkInfo?.inBay ? 0.5 : 0.28;
+  }
+
+  // ---------- bulles de pensée des PNJ ----------
+  bubble(car, text) {
+    if (!car?.cur || car.cur.distanceTo(this.camera.position) > 140) return;
+    this.bubbleList ||= [];
+    if (this.bubbleList.length >= 4 || this.bubbleList.some(b => b.car === car)) return;
+    const c = document.createElement('canvas'); c.width = 512; c.height = 128; const g = c.getContext('2d');
+    g.font = '700 34px Arial'; const w = Math.min(500, g.measureText(text).width + 44);
+    g.fillStyle = 'rgba(255,255,255,0.95)'; g.beginPath(); g.roundRect((512 - w) / 2, 10, w, 76, 26); g.fill();
+    g.beginPath(); g.moveTo(240, 84); g.lineTo(256, 112); g.lineTo(272, 84); g.fill();
+    g.fillStyle = '#111'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 256, 49);
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true })); sp.scale.set(6, 1.5, 1); sp.renderOrder = 20;
+    this.scene.add(sp); this.bubbleList.push({ car, sp, t: 0 });
+  }
+  bubblesStep(dt) {
+    if (!this.bubbleList) return;
+    for (const b of this.bubbleList) {
+      b.t += dt; const p = b.car.mesh?.position || b.car.cur;
+      b.sp.position.set(p.x, (b.car.type?.h || 1.5) + 2.2 + Math.min(0.4, b.t), p.z);
+      b.sp.material.opacity = b.t < 2.4 ? 1 : Math.max(0, 1 - (b.t - 2.4) * 2);
+      if (b.t > 2.9 || b.car.dead) { this.scene.remove(b.sp); b.sp.material.map.dispose(); b.dead = true; }
+    }
+    this.bubbleList = this.bubbleList.filter(b => !b.dead);
   }
 
   // ---------- hélicoptère de la gendarmerie ----------
@@ -906,6 +990,15 @@ export class Game {
         if (ok >= 2) return this.finish(true, 'Convoi livré !', `${ok} camions sur 3 sont arrivés à la plateforme.`);
         if (lost >= 2) return this.finish(false, 'Convoi démantelé', 'Deux camions ont été interceptés.');
         if (!this.playerArrived) { /* continue */ } else return;
+      } else if (this.team === 'truck' && truck === pl && inDepot(rd)) {
+        // il faut se garer au quai indiqué (cabine ou remorque dans le rectangle vert, presque à l'arrêt)
+        const bs = YARD_END.bays[this.world.targetBay], parts = [rd]; if (pl.trailer) parts.push(worldToRoad(pl.trailer.curPos.x - pl.trailer.curQuat.y * 0, pl.trailer.curPos.z, {}));
+        if (pl.trailer) { const tq = pl.trailer.curQuat, f = _v.set(0, 0, -6).applyQuaternion(tq).add(pl.trailer.curPos); parts.push(worldToRoad(f.x, f.z, {})); }
+        const inBay = parts.some(q => Math.abs(q.s - bs) < 2.8 && q.d < YARD_END.whD0 + 22 && q.d > YARD_END.whD0 + 0.3);
+        this.parkInfo = { n: this.world.targetBay + 1, dist: Math.hypot(rd.s - bs, rd.d - (YARD_END.whD0 + 10)), inBay };
+        if (inBay && pl.kmh < 3) { this.parkT += dt; if (this.parkT > 1.5) return this.finish(true, 'Livraison réussie !', this.coop ? 'Camion garé au quai ' + (this.world.targetBay + 1) + '. La Tomme Dorée est sauvée !' : 'Camion garé au quai ' + (this.world.targetBay + 1) + ', les manutentionnaires déchargent.'); }
+        else this.parkT = 0;
+        if (!this.parkHint) { this.parkHint = true; this.hud.msg(`🅿️ Vous êtes à la plateforme ! Garez-vous au <b>quai ${this.world.targetBay + 1}</b> (rectangle vert), arrêtez-vous dedans.`); }
       } else if (inDepot(rd)) {
         return this.finish(this.team === 'truck', this.team === 'truck' ? 'Livraison réussie !' : 'Le suspect s’est échappé.', this.coop ? 'La Tomme Dorée est sauvée ! Les fromagers pleurent de joie.' : 'Le camion a atteint la Plateforme Logistique.');
       }
@@ -1124,7 +1217,7 @@ export class Game {
     });
     this.snapN = (this.snapN || 0) + 1;
     const pp = this.player?.curPos, tr = this.snapN % 2 ? null : this.traffic.snapshot().filter(c => !pp || Math.hypot(c[3] - pp.x, c[4] - pp.z) < 450); // trafic à 7,5 Hz et seulement à proximité
-    this.net.send({ t: 'snap', v: V, tr, g: { tl: +this.timeLeft.toFixed(1), b: +this.bust.toFixed(2), st: this.state, c: this.coop.serialize(), bn: this.bananas.map(b => [+b.mesh.position.x.toFixed(1), +b.mesh.position.z.toFixed(1)]), sc: Math.round(this.score), tm: +this.time.toFixed(1), wa: this.wanted || 0, hl: this.heliOn && this.heli.visible ? [this.heli.position.x, this.heli.position.y, this.heli.position.z].map(x => +x.toFixed(1)) : null, pr: this.cartons.slice(-24).map(c => [c.kind === 'cheese' ? 1 : 0, ...[c.mesh.position.x, c.mesh.position.y, c.mesh.position.z, c.mesh.quaternion.x, c.mesh.quaternion.y, c.mesh.quaternion.z, c.mesh.quaternion.w].map(x => +x.toFixed(2))]), rel: this.released ? 1 : 0, w: this.env.weather, tod: this.env.timeOfDay } });
+    this.net.send({ t: 'snap', v: V, tr, g: { tl: +this.timeLeft.toFixed(1), b: +this.bust.toFixed(2), st: this.state, c: this.coop.serialize(), bn: this.bananas.map(b => [+b.mesh.position.x.toFixed(1), +b.mesh.position.z.toFixed(1)]), sc: Math.round(this.score), tm: +this.time.toFixed(1), wa: this.wanted || 0, sl: (this.slicks || []).map(sl => [sl.kind === 'oil' ? 0 : 1, +sl.x.toFixed(1), +sl.z.toFixed(1), +sl.owner.yaw.toFixed(2)]), sm: this.smokeT?.t > 0 ? 1 : 0, hl: this.heliOn && this.heli.visible ? [this.heli.position.x, this.heli.position.y, this.heli.position.z].map(x => +x.toFixed(1)) : null, pr: this.cartons.slice(-24).map(c => [c.kind === 'cheese' ? 1 : 0, ...[c.mesh.position.x, c.mesh.position.y, c.mesh.position.z, c.mesh.quaternion.x, c.mesh.quaternion.y, c.mesh.quaternion.z, c.mesh.quaternion.w].map(x => +x.toFixed(2))]), rel: this.released ? 1 : 0, w: this.env.weather, tod: this.env.timeOfDay } });
   }
 
   // ---------- coop en ligne côté invité : on affiche le monde de l'hôte ----------
@@ -1171,6 +1264,13 @@ export class Game {
       if (m.tr) this.traffic.applySnapshot(m.tr);
       const g = m.g;
       this.timeLeft = g.tl; this.bust = g.b; this.score = g.sc; this.released = !!g.rel; this.wanted = g.wa;
+      // huile et clous de l'hôte
+      this.slicks ||= [];
+      if ((g.sl || []).length !== this.slicks.length) {
+        this.slicks.forEach(sl => this.scene.remove(sl.mesh)); this.slicks = [];
+        for (const [k, x, z, yaw] of g.sl || []) { const fake = { yaw, trailer: null, def: { len: 0 }, curQuat: new THREE.Quaternion(), curPos: new THREE.Vector3(x, 0, z) }; this.dropGadget(k ? 'nails' : 'oil', fake); const sl = this.slicks[this.slicks.length - 1]; sl.mesh.position.x = x; sl.mesh.position.z = z; sl.r = 0; }
+      }
+      if (g.sm && this.player && !(this.smokeT?.t > 0)) this.smokeT = { t: 1, v: this.player };
       // hélicoptère de l'hôte
       if (g.hl) { this.heliOn = true; this.heli.visible = true; if (!this.heliT) this.heli.position.set(...g.hl); this.heliTarget = g.hl; } else if (this.heliOn) { this.heliOn = false; this.heli.visible = false; }
       // cartons et fromages
@@ -1200,7 +1300,7 @@ export class Game {
       if (inp.hit('Tab')) this.coopAct('swap');
       this.coopPad();
       if (Mini.on) { if (inp.hit('Space') || inp.hit('Enter') || ACTIONS.some(a => inp.hit('Digit' + a.k))) Mini.pad(); }
-      else if (this.coop.driver !== 1) ACTIONS.forEach(a => { if (inp.hit('Digit' + a.k) || inp.hit('Numpad' + a.k)) this.coopAct(a.id); });
+      else if (this.coop.driver !== 1) ACTIONS.forEach(a => { if (inp.hit(a.code || 'Digit' + a.k) || inp.hit('Numpad' + a.k)) this.coopAct(a.id); });
       if (this.coop.roof && inp.mouse.clicked && document.pointerLockElement) this.coopAct('throw');
       if (inp.hit('KeyC')) this.hud.toast(CAM_NAMES[this.camRig.cycle()]);
     }

@@ -30,7 +30,10 @@ export function worldToRoad(x, z, out = { s: 0, d: 0 }) {
 // Points d'intérêt (s)
 export const START_S = 0;
 export const DEST_S = 7600;               // plateforme logistique (côté droit, sens +s)
-export const DEST = { s0: 7560, s1: 7780, d0: -24, d1: -92 };
+export const DEST = { s0: 7540, s1: 7860, d0: -24, d1: -128 };
+// cours de dépôts : plateforme d'arrivée (quais de livraison) et entrepôt de départ
+export const YARD_END = { s0: DEST.s0, s1: DEST.s1, d0: -24, d1: -128, whD0: -132, whD1: -192, name: 'PLATEFORME LOGISTIQUE', sub: 'Coopérative des fromagers — Quais 1 à 10', color: '#1f8a3a', bays: Array.from({ length: 10 }, (_, i) => DEST.s0 + 35 + i * 27) };
+export const YARD_START = { s0: -520, s1: -230, d0: -24, d1: -110, whD0: -114, whD1: -165, name: 'DÉPÔT MÉGACORP', sub: 'Fromages industriels — Accès interdit', color: '#b0161e', bays: Array.from({ length: 8 }, (_, i) => -500 + i * 30), ramp: [-230, -40] };
 export const EXIT_GAP = [7380, 7800];     // glissière ouverte vers la plateforme
 export const TUNNELS = [[3000, 3560], [5800, 6260]];
 // Itinéraire bis : sortie 15 → route départementale D77 parallèle (d ≈ -140) → arrière de la plateforme
@@ -38,13 +41,14 @@ export const EXIT15 = [3600, 3760];
 export const D77 = { s0: 3900, s1: 7440, d: -140, half: 3.6 };
 export const VILLAGE = { s0: 5300, s1: 5650, name: 'Saint-Fromage-sur-Tomme' };
 export const REST_AREAS = [{ s0: 1900, s1: 2250, name: 'Aire des Grands Champs' }, { s0: 4700, s1: 5050, name: 'Aire du Val Doré' }];
-export const OVERPASSES = [820, 1480, 2620, 3950, 4420, 5320, 6900, 7250, -250, 8300, 9400];
+export const OVERPASSES = [820, 1480, 2620, 3950, 4420, 5320, 6900, 7250, -700, 8300, 9400];
 export const EXIT_NUM = 18;
 export const inTunnel = s => TUNNELS.some(([a, b]) => s > a && s < b);
 export const railOpen = (s, side) => { // side -1 = côté droit du sens +s
   if (side > 0) return false;
   if (s > EXIT_GAP[0] && s < EXIT_GAP[1]) return true;
   if (s > EXIT15[0] && s < EXIT15[1]) return true;
+  if (s > -525 && s < -40) return true; // sortie du dépôt de départ
   return REST_AREAS.some(r => s > r.s0 - 40 && s < r.s1 + 40);
 };
 

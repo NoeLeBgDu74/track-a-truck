@@ -111,6 +111,8 @@ export class HUD {
     const toExit = EXIT_GAP[0] - s;
     if (g.mode === 'free') { instr = 'Circulation libre'; }
     else if (g.team === 'police' && truck) { instr = truck.road.s > s ? 'Rattrapez le suspect' : 'Suspect derrière vous'; dist = Math.abs(Math.round(truck.road.s - s)) + ' m'; }
+    else if (g.parkInfo && s > DEST.s0 - 20) { instr = g.parkInfo.inBay ? '🅿️ Dans le quai : arrêtez-vous !' : `🅿️ Garez-vous au quai ${g.parkInfo.n}`; dist = g.parkInfo.inBay ? 'STOP' : Math.round(g.parkInfo.dist) + ' m'; }
+    else if (s < -40 && g.team === 'truck' && g.mode !== 'free') { instr = 'Sortez du dépôt et rejoignez l’A77'; dist = Math.round(-40 - s) + ' m'; }
     else if (toExit > 1000) { instr = 'Suivez l’A77 — Sortie 18'; dist = (toExit / 1000).toFixed(1) + ' km'; }
     else if (toExit > 0) { instr = 'Sortie 18 à droite ⬈'; dist = Math.round(toExit / 10) * 10 + ' m'; }
     else if (s < DEST.s1) { instr = 'Entrez dans la plateforme ⬈'; dist = Math.max(0, Math.round((DEST.s0 + DEST.s1) / 2 - s)) + ' m'; }

@@ -49,6 +49,10 @@ export class Traffic {
       fa: new THREE.Vector3(), ra: new THREE.Vector3(), wb: type.len * (type.kind === 'bus' ? 0.5 : 0.62),
     };
     car.v0 = (type.v0[0] + this.r() * (type.v0[1] - type.v0[0])) * (0.93 + car.mood * 0.12);
+    // personnalité du conducteur : influence vitesse, distances, réactions
+    const pr = this.r(); car.persona = type.trucks ? (pr < 0.7 ? 'calme' : 'prudent') : pr < 0.35 ? 'calme' : pr < 0.6 ? 'prudent' : pr < 0.85 ? 'presse' : 'distrait';
+    if (car.persona === 'presse') car.v0 *= 1.1; if (car.persona === 'prudent') car.v0 *= 0.92;
+    car.feel = null; car.feelT = 0; car.accLag = 0;
     car.v = opts.v ?? car.v0 * 0.9;
     // chaîne cinématique initiale (alignée sur la route)
     const yaw = roadYaw(s) + (dir < 0 ? Math.PI : 0), fx = Math.sin(yaw), fz = Math.cos(yaw);
@@ -165,7 +169,11 @@ export class Traffic {
   }
 
   idm(car, lead, v0) {
-    const a = car.type.trucks ? 1.0 : 1.8, b = 3.0, T = car.type.trucks ? 1.7 : 1.15 + car.mood * 0.4, s0 = 3;
+    const env = this.game.env, wetK = 1 + (env?.wet || 0) * 0.45 + (env?.fogAmt || 0) * 0.5;
+    const pT = { calme: 1, prudent: 1.35, presse: 0.7, distrait: 1.1 }[car.persona] || 1;
+    const a = car.type.trucks ? 1.0 : 1.8, b = 3.0, s0 = 3;
+    let T = (car.type.trucks ? 1.7 : 1.15 + car.mood * 0.4) * pT * wetK;
+    if (car.feel === 'angry') T *= 0.45; if (car.feel === 'panic') T *= 1.3;
     const v = car.v;
     let acc = a * (1 - Math.pow(v / Math.max(v0, 0.5), 4));
     if (lead.o) {
@@ -214,6 +222,24 @@ export class Traffic {
       }
 
       if (yieldSiren) v0 *= car.lane >= 2 ? 0.55 : 0.75;
+      // ---- conscience de l'environnement ----
+      const env = g.env;
+      if (env) { v0 *= 1 - env.night * 0.07 - env.fogAmt * 0.25 - env.tunnel * 0.1; }
+      car.feelT = Math.max(0, car.feelT - dt); if (car.feelT <= 0) car.feel = null;
+      const tk = g.targetTruck?.();
+      if (tk && !car.d77 === tk.road.d > -18) {
+        const ds = (tk.road.s - car.s) * car.dir, sameSide = Math.sign(tk.road.d) === Math.sign(car.d) || car.d77;
+        const closing = (tk.speed * Math.sign(roadYaw(tk.road.s) * 0 + 1)) - car.v;
+        // le camion fou arrive vite derrière (ou la poursuite) : panique, on s'écarte
+        if (sameSide && ds < -car.back && ds > -80 && (closing > 6 || (g.released && g.mode !== 'free'))) {
+          if (car.feel !== 'panic') { car.feel = 'panic'; car.feelT = 5; car.hazard = 4; if (car.persona !== 'distrait') g.bubble?.(car, ['Mais il est fou ce camion !', 'AAAH il arrive !', 'Je me pousse, je me pousse !', 'C’est quoi ce délire ?!'][Math.floor(this.r() * 4)]); }
+        }
+        // curiosité : la police et l'hélicoptère
+        if (g.heliOn && Math.abs(ds) < 120 && this.r() < 0.002) g.bubble?.(car, ['Un hélico ?! C’est un film ?', 'Regarde là-haut !'][Math.floor(this.r() * 2)]);
+      }
+      if (car.feel === 'panic') { v0 *= 0.75; yieldSiren = yieldSiren || { s: car.s - car.dir * 50, d: car.d }; }
+      if (car.feel === 'angry') v0 *= 1.15;
+      if (car.persona === 'distrait' && !car.lc) car.dodge += Math.sin(g.time * 0.8 + car.seed) * 0.004; // léger zigzag (téléphone)
       if (wreckNear) { // curiosité + prudence
         if (wreckNear.ah < 90) { v0 = Math.min(v0, 14 + car.mood * 6); if (car.v > 16) car.hazard = 3; }
       }
@@ -224,6 +250,7 @@ export class Traffic {
       if (car.lc) acc = Math.min(acc, this.idm(car, this.leader(car, laneD(car.dir, car.lc.to), obs), v0));
       if (lead.o?.wreck && lead.gap < 60) car.hazard = 3;
       if (acc < -5) car.hazard = Math.max(car.hazard, 1.5);
+      if (car.persona === 'distrait') { car.accLag += (acc - car.accLag) * Math.min(1, dt * 1.6); acc = Math.min(acc, car.accLag) < -6 ? acc : car.accLag; }
       car.acc = acc;
       car.v = Math.max(0, car.v + acc * dt);
       car.brake = acc < -1.2 || car.v < 0.5;
@@ -280,7 +307,12 @@ export class Traffic {
       car.dodge += (dodgeT * 0.9 - car.dodge) * Math.min(1, dt * 2.5);
       this.kinematics(car, dt);
 
-      if (lead.o?.veh && lead.o.veh === g.player && lead.gap < 8 && car.v > 12 && this.honkCd <= 0) { this.honkCd = 2.5; g.audio?.honkAt(car.cur, car.type.trucks); }
+      if (lead.o?.veh && lead.o.veh === g.player && lead.gap < 8 && car.v > 12 && this.honkCd <= 0) {
+        this.honkCd = 2.5; g.audio?.honkAt(car.cur, car.type.trucks);
+        if (car.persona === 'presse' || car.persona === 'calme' && this.r() < 0.3) { car.feel = 'angry'; car.feelT = 7; car.flash = 1.5; g.bubble?.(car, ['Non mais ho !', 'Apprends à conduire !', 'Espèce de chauffard !', 'Tu vas voir toi…'][Math.floor(this.r() * 4)]); }
+        else g.bubble?.(car, ['Oh là là…', 'Il m’a fait peur !'][Math.floor(this.r() * 2)]);
+      }
+      if (car.flash > 0) car.flash -= dt;
     }
 
     this.detectCrashes(dt);
@@ -388,6 +420,13 @@ export class Traffic {
       b.setAngularDamping(1.2); b.setLinearDamping(0.3);
     }
     this.game.stats.crashes++;
+    // les témoins appellent la police
+    const g = this.game, tk = g.targetTruck?.();
+    if (tk && car.cur.distanceTo(tk.curPos) < 40 && g.mode !== 'free' && g.state === 'play') {
+      g.heat = Math.min(100, (g.heat || 0) + 3);
+      const w = this.cars.find(o => !o.wreck && o !== car && o.cur.distanceTo(car.cur) < 80);
+      if (w) { g.bubble?.(w, 'J’appelle le 17 !'); w.hazard = 6; g.say?.('witness', `Un témoin signale le camion au PK ${(car.s / 1000).toFixed(1)}.`, 20); }
+    }
     this.game.onTrafficCrash?.(car);
   }
 
@@ -420,7 +459,8 @@ export class Traffic {
       const p = car.mesh.position;
       let rx = p.x - fx * L, rz = p.z - fz * L, rsx = sx, rsz = sz;
       if (car.trailer && !car.wreck) { const ty = car.trailer.yaw; rx = car.trailer.kp.x - Math.sin(ty) * 12.25; rz = car.trailer.kp.z - Math.cos(ty) * 12.25; rsx = Math.cos(ty); rsz = -Math.sin(ty); }
-      if (night && !car.wreck) for (const k of [-1, 1]) out.push([[p.x + fx * L + sx * hw * k, y, p.z + fz * L + sz * hw * k], 0xfff2dc, 1.3]);
+      const flashOn = car.flash > 0 && (this.game.time * 6) % 1 < 0.5;
+      if ((night || flashOn) && !car.wreck) for (const k of [-1, 1]) out.push([[p.x + fx * L + sx * hw * k, y, p.z + fz * L + sz * hw * k], 0xfff2dc, flashOn ? 3 : 1.3]);
       if (night || car.brake) for (const k of [-1, 1]) out.push([[rx + rsx * hw * k, y, rz + rsz * hw * k], 0xff2020, car.brake ? 1.2 : 0.6]);
       if (car.lc && !car.hazard && blink) { // clignotant du côté de la voie visée (+X = gauche du véhicule)
         const toLeft = (laneD(car.dir, car.lc.to) - laneD(car.dir, car.lc.from)) * car.dir < 0 ? 1 : -1, k = toLeft;

@@ -5,7 +5,8 @@ import {
   railOpen, rng, EXIT_NUM, laneD,
 } from './config.js';
 import { canvasTex, buildTraffic, MAT } from './models.js';
-import { TRAFFIC_TYPES, EXIT15, D77, VILLAGE } from './config.js';
+import { TRAFFIC_TYPES, EXIT15, D77, VILLAGE, YARD_END, YARD_START } from './config.js';
+import { buildPerson } from './models.js';
 
 const CH = 200, STEP = 5;
 const _p = { x: 0, z: 0 };
@@ -132,7 +133,7 @@ export class World {
     this.scene = scene; this.R = R; this.phys = phys; this.seed = seed;
     this.chunks = new Map(); this.turbines = []; this.glows = []; this.arrows = [];
     this.roadworks = [];
-    this.cones = [];
+    this.cones = []; this.living = []; this.targetBay = 0;
     this.t = 0;
     this.initMaterials();
     // sol
@@ -225,6 +226,7 @@ export class World {
     for (let k = k0; k <= k1; k++) if (!this.chunks.has(k)) { this.build(k); if (++built >= 2 && !force) break; }
     for (const [k, c] of this.chunks) if (k < k0 - 2 || k > k1 + 2) this.unload(k);
     for (const t of this.turbines) t.rotor.rotation.z += dt * t.speed;
+    for (const L of this.living) L.update(dt, this.t);
     const blink = (this.t % 1) < 0.5;
     for (const a of this.arrows) a.material.emissiveIntensity = blink ? 3 : 0.1;
     // cônes dynamiques
@@ -243,6 +245,8 @@ export class World {
     for (const b of c.dyn) this.phys.removeRigidBody(b.body);
     this.cones = this.cones.filter(x => !c.dyn.includes(x));
     this.turbines = this.turbines.filter(t => t.k !== k);
+    for (const L of this.living) if (L.k === k) L.dispose?.();
+    this.living = this.living.filter(L => L.k !== k);
     this.arrows = this.arrows.filter(a => !c.arrows.includes(a));
     this.chunks.delete(k);
   }
@@ -318,6 +322,8 @@ export class World {
     for (const ra of REST_AREAS) if (s1 > ra.s0 - 40 && s0 < ra.s1 + 40) this.buildRest(g, add, col, ra, Math.max(s0, ra.s0 - 40), Math.min(s1, ra.s1 + 40), r, c);
     // sortie + plateforme logistique
     if (s1 > EXIT_GAP[0] && s0 < EXIT_GAP[1] + 300) this.buildDepot(g, add, col, s0, s1, c);
+    for (const Y of [YARD_END, YARD_START]) if (s1 > Y.s0 - 10 && s0 < Y.s1 + 10) this.buildYard(Y, g, add, col, s0, s1, c, k, r);
+    if (s1 > YARD_START.ramp[0] && s0 < YARD_START.ramp[1]) { const a = Math.max(s0, YARD_START.ramp[0]), b = Math.min(s1, YARD_START.ramp[1]), f = sv => (sv - YARD_START.ramp[0]) / (YARD_START.ramp[1] - YARD_START.ramp[0]); add(flatQuad(a, b, -24 + f(a) * 8.5, -46 + f(a) * 29, -24 + f(b) * 8.5, -46 + f(b) * 29, 0.016), this.lotMat); }
     // itinéraire bis : sortie 15 + départementale D77 + village
     if (s1 > EXIT15[0] - 1200 && s0 < D77.s1 + 200) this.buildD77(g, add, col, s0, s1, c, r);
     // panneaux
@@ -558,34 +564,95 @@ export class World {
       const t = s => (s - EXIT_GAP[0]) / (DEST.s0 - EXIT_GAP[0]);
       add(flatQuad(a, b, -HALF + 0.5, -HALF - 1 - t(a) * 10, -HALF + 0.5, -HALF - 1 - t(b) * 10, 0.016), this.lotMat);
     }
-    const la = Math.max(s0, DEST.s0), lb = Math.min(s1, DEST.s1);
-    if (lb > la) {
-      add(flatQuad(la, lb, -HALF + 0.5, DEST.d1, -HALF + 0.5, DEST.d1, 0.015, 8), this.lotMat);
-      // marquage d'arrivée
-      for (let s = Math.ceil(la / 12) * 12; s < lb; s += 12) {
-        const m = add(flatQuad(s, s + 3.5, -50, -66, -50, -66, 0.03), new THREE.MeshBasicMaterial({ color: 0xf0c020 }));
-      }
+  }
+
+  // ---------- cours de dépôt vivantes : entrepôt, quais numérotés, chariots élévateurs, manutentionnaires ----------
+  buildYard(Y, g, add, col, s0, s1, c, k, r) {
+    const R = this.R, isEnd = Y === YARD_END;
+    const la = Math.max(s0, Y.s0), lb = Math.min(s1, Y.s1);
+    if (lb > la) add(flatQuad(la, lb, Y.d0, Y.d1 - 2, Y.d0, Y.d1 - 2, 0.015, 8), this.lotMat);
+    const whMat = this.whMat ||= new THREE.MeshStandardMaterial({ color: 0xc9ccd2, roughness: 0.7, metalness: 0.2 });
+    const yellow = this.yellowMat ||= new THREE.MeshBasicMaterial({ color: 0xf0c020 });
+    const whiteL = this.whiteLineMat ||= new THREE.MeshBasicMaterial({ color: 0xf2f2ee });
+    // entrepôt par tronçons de 60 m
+    for (let sw = Y.s0; sw < Y.s1; sw += 60) {
+      const sm = Math.min(sw + 30, Y.s1 - 1); if (sm < s0 || sm >= s1) continue;
+      const len = Math.min(60, Y.s1 - sw); roadToWorld(sw + len / 2, (Y.whD0 + Y.whD1) / 2, _p); const yaw = roadYaw(sw + len / 2), dep = Y.whD0 - Y.whD1;
+      const wh = add(new THREE.BoxGeometry(dep, 12, len), whMat, true); wh.position.set(_p.x, 6, _p.z); wh.rotation.y = yaw; col(dep / 2, 6, len / 2, _p.x, 6, _p.z, yaw);
+      for (let i = 0; i < len / 6; i++) { roadToWorld(sw + 3 + i * 6, Y.whD0 + 0.06, _p); const rib = add(new THREE.BoxGeometry(0.12, 12, 0.25), this.postMat); rib.position.set(_p.x, 6, _p.z); rib.rotation.y = yaw; }
     }
-    const mid = (DEST.s0 + DEST.s1) / 2;
+    // enseigne
+    const mid = (Y.s0 + Y.s1) / 2;
     if (mid >= s0 && mid < s1) {
-      roadToWorld(mid, -125, _p); const yaw = roadYaw(mid);
-      const wh = add(new THREE.BoxGeometry(60, 14, 180), new THREE.MeshStandardMaterial({ color: 0xc9ccd2, roughness: 0.7, metalness: 0.2 }), true);
-      wh.position.set(_p.x, 7, _p.z); wh.rotation.y = yaw; col(30, 7, 90, _p.x, 7, _p.z, yaw);
-      for (let i = -6; i <= 6; i++) {
-        roadToWorld(mid + i * 13, -94.9, _p);
-        const door = add(new THREE.BoxGeometry(0.1, 4, 3.6), new THREE.MeshStandardMaterial({ color: 0x3a5a8a })); door.position.set(_p.x, 2.2, _p.z); door.rotation.y = yaw;
+      const t = signTex([Y.name, Y.sub], Y.color, 1024, 256);
+      const sg = add(new THREE.PlaneGeometry(44, 11), new THREE.MeshStandardMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.35 }));
+      roadToWorld(mid, Y.whD0 + 0.2, _p); sg.position.set(_p.x, 15, _p.z); sg.rotation.y = roadYaw(mid) - Math.PI / 2;
+      for (let i = -5; i <= 5; i++) { roadToWorld(mid + i * 28, Y.d0 - 3, _p); c.glows.push([_p.x, 10, _p.z]); const pole = add(new THREE.CylinderGeometry(0.12, 0.15, 10, 6), this.postMat); pole.position.set(_p.x, 5, _p.z); }
+    }
+    // quais
+    Y.bays.forEach((bs, i) => {
+      if (bs < s0 || bs >= s1) return;
+      const yaw = roadYaw(bs);
+      roadToWorld(bs, Y.whD0 + 0.08, _p);
+      const door = add(new THREE.BoxGeometry(0.15, 3.6, 3.4), new THREE.MeshStandardMaterial({ color: isEnd ? 0x2f6a3a : 0x5a2a2a })); door.position.set(_p.x, 2.6, _p.z); door.rotation.y = yaw;
+      const seal = add(new THREE.BoxGeometry(0.5, 4, 4.2), this.darkMat); roadToWorld(bs, Y.whD0 + 0.3, _p); seal.position.set(_p.x, 2.4, _p.z); seal.rotation.y = yaw;
+      const nt = signTex(['QUAI ' + (i + 1)], isEnd ? '#1f8a3a' : '#333', 256, 128);
+      const num = add(new THREE.PlaneGeometry(2.4, 1.2), new THREE.MeshStandardMaterial({ map: nt, emissive: 0xffffff, emissiveMap: nt, emissiveIntensity: 0.3 })); roadToWorld(bs, Y.whD0 + 0.2, _p); num.position.set(_p.x, 5.2, _p.z); num.rotation.y = yaw - Math.PI / 2;
+      for (const o of [-2.4, 2.4]) add(flatQuad(bs + o - 0.08, bs + o + 0.08, Y.whD0 + 0.5, Y.whD0 + 21, Y.whD0 + 0.5, Y.whD0 + 21, 0.03), isEnd ? yellow : whiteL);
+      for (const sx of [-1.4, 1.4]) { const bp = add(new THREE.BoxGeometry(0.4, 0.5, 0.3), this.darkMat); roadToWorld(bs + sx, Y.whD0 + 0.35, _p); bp.position.set(_p.x, 1.1, _p.z); bp.rotation.y = yaw; }
+      // camion déjà à quai (sauf au quai à atteindre)
+      const occupied = isEnd ? i !== this.targetBay && r() < 0.55 : r() < 0.5 && i !== 3;
+      if (occupied) {
+        const t = buildTraffic(TRAFFIC_TYPES[3], r), tr = t.userData.trailer;
+        const cy = yaw + Math.PI / 2; // garé en marche arrière : remorque contre le quai, cabine vers la cour
+        roadToWorld(bs, Y.whD0 + 1 + 13.4 + 1.15, _p);
+        t.position.set(_p.x, 0, _p.z); t.rotation.y = cy; g.add(t); if (tr) { tr.position.set(0, 0, -1.15); t.add(tr); }
+        roadToWorld(bs, Y.whD0 + 9.5, _p); col(1.3, 2, 9.2, _p.x, 2, _p.z, cy);
+        // manutentionnaire qui décharge (va-et-vient remorque ↔ quai) avec un carton
+        const guy = buildPerson(0xff8a1a); const box = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.35, 0.4), new THREE.MeshStandardMaterial({ color: 0xa8814f })); box.position.set(0, 1.45, 0.3); guy.add(box); g.add(guy);
+        const ph = r() * 6;
+        this.living.push({ k, update: (dt, T) => { const u = (Math.sin(T * 0.5 + ph) + 1) / 2, dd = Y.whD0 + 0.8 + u * 2.6; roadToWorld(bs + 1.6, dd, _p); guy.position.set(_p.x, 1.0, _p.z); guy.rotation.y = yaw - Math.PI / 2 + (Math.cos(T * 0.5 + ph) > 0 ? 0 : Math.PI); guy.position.y = 1.0 + Math.abs(Math.sin(T * 6)) * 0.04; box.visible = Math.cos(T * 0.5 + ph) < 0; } });
       }
-      const t = signTex(['PLATEFORME LOGISTIQUE', 'TRACK A TRUCK — Quai de livraison'], '#b0161e', 1024, 256);
-      const s = add(new THREE.PlaneGeometry(40, 10), new THREE.MeshStandardMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.35 }));
-      roadToWorld(mid, -94.8, _p); s.position.set(_p.x, 11, _p.z); s.rotation.y = yaw - Math.PI / 2;
-      // balise lumineuse d'objectif
-      roadToWorld(mid, -58, _p);
-      const beam = add(new THREE.CylinderGeometry(9, 9, 60, 32, 1, true), new THREE.MeshBasicMaterial({ color: 0x40ff90, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }), false, false);
-      beam.position.set(_p.x, 30, _p.z);
-      const ring = add(new THREE.RingGeometry(8.4, 9, 48), new THREE.MeshBasicMaterial({ color: 0x40ff90, side: THREE.DoubleSide }), false, false);
-      ring.rotation.x = -Math.PI / 2; ring.position.set(_p.x, 0.05, _p.z);
-      this.beam = beam;
-      for (let i = -4; i <= 4; i++) { roadToWorld(mid + i * 25, -22, _p); c.glows.push([_p.x, 9, _p.z]); }
+      // palettes entre les quais
+      if (r() < 0.6) for (let h = 0; h < 1 + (r() * 3 | 0); h++) { const pal = add(new THREE.BoxGeometry(1.2, 0.9, 1.2), new THREE.MeshStandardMaterial({ color: [0xa8814f, 0x8a6a40, 0xc8b090][h % 3] }), true); roadToWorld(bs + 13, Y.whD0 + 2 + h * 1.4, _p); pal.position.set(_p.x, 0.45, _p.z); pal.rotation.y = yaw + r() * 0.2; col(0.6, 0.45, 0.6, _p.x, 0.45, _p.z, yaw); }
+    });
+    // chariots élévateurs qui circulent le long des quais (corps cinématiques)
+    const nF = 2;
+    for (let f = 0; f < nF; f++) {
+      const sA = Y.s0 + 20 + f * (Y.s1 - Y.s0) / 2, sB = sA + (Y.s1 - Y.s0) / 2 - 40;
+      if ((sA + sB) / 2 < s0 || (sA + sB) / 2 >= s1) continue;
+      const fl = new THREE.Group();
+      const yb = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.1, 2.1), new THREE.MeshStandardMaterial({ color: 0xf0b010, roughness: 0.6 })); yb.position.y = 0.8; fl.add(yb);
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.06, 1.2), this.darkMat); roof.position.set(0, 2.2, -0.2); fl.add(roof);
+      for (const sx of [-0.5, 0.5]) { const p = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.4, 0.06), this.darkMat); p.position.set(sx, 1.5, 0.3); fl.add(p); }
+      const mast = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2.4, 0.12), this.darkMat); mast.position.set(0, 1.3, 1.15); fl.add(mast);
+      const fork = new THREE.Group(); for (const sx of [-0.25, 0.25]) { const fk = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.05, 1.1), this.postMat); fk.position.set(sx, 0, 0.6); fork.add(fk); } fork.position.set(0, 0.2, 1.2); fl.add(fork);
+      const pal = new THREE.Mesh(new THREE.BoxGeometry(1, 0.8, 1), new THREE.MeshStandardMaterial({ color: 0xa8814f })); pal.position.set(0, 0.45, 0.6); fork.add(pal);
+      const drv = buildPerson(0x1f5fa8); drv.scale.setScalar(0.9); drv.position.set(0, 0.2, -0.3); fl.add(drv);
+      const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), new THREE.MeshStandardMaterial({ color: 0xff9a10, emissive: 0xff8a00, emissiveIntensity: 2 })); beacon.position.set(0, 2.3, -0.2); fl.add(beacon);
+      for (const [x, z] of [[0.55, 0.6], [-0.55, 0.6], [0.55, -0.6], [-0.55, -0.6]]) { const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.2, 10), this.darkMat); wh.rotation.z = Math.PI / 2; wh.position.set(x, 0.25, z); fl.add(wh); }
+      fl.traverse(o => o.castShadow = true); g.add(fl);
+      const body = this.phys.createRigidBody(R.RigidBodyDesc.kinematicPositionBased());
+      this.phys.createCollider(R.ColliderDesc.cuboid(0.6, 1, 1.4).setTranslation(0, 1, 0.3), body);
+      const dl = Y.whD0 + 7 + f * 3, ph = r() * 10, L = sB - sA;
+      this.living.push({ k, dispose: () => this.phys.removeRigidBody(body), update: (dt, T) => {
+        const u = ((T * 4 + ph * 10) % (2 * L)), fwd = u < L, sv = sA + (fwd ? u : 2 * L - u);
+        roadToWorld(sv, dl, _p); const yaw = roadYaw(sv) + (fwd ? 0 : Math.PI);
+        fl.position.set(_p.x, 0, _p.z); fl.rotation.y = yaw; fork.position.y = 0.2 + Math.max(0, Math.sin(T * 0.7 + ph)) * 0.8; pal.visible = Math.sin(T * 0.21 + ph) > -0.3;
+        body.setNextKinematicTranslation({ x: _p.x, y: 0, z: _p.z }); body.setNextKinematicRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) });
+      } });
+    }
+    // dépôt de départ : barrière levante à la sortie + guérite + clôture
+    if (!isEnd && Y.ramp[0] >= s0 && Y.ramp[0] < s1) {
+      roadToWorld(Y.ramp[0] - 4, -34, _p); const yaw = roadYaw(Y.ramp[0]);
+      const hut = add(new THREE.BoxGeometry(2.5, 2.8, 3), new THREE.MeshStandardMaterial({ color: 0xe8e4da }), true); hut.position.set(_p.x, 1.4, _p.z); hut.rotation.y = yaw; col(1.25, 1.4, 1.5, _p.x, 1.4, _p.z, yaw);
+      const boom = new THREE.Group(); roadToWorld(Y.ramp[0] - 2, -32.5, _p); boom.position.set(_p.x, 1.1, _p.z); boom.rotation.y = yaw + Math.PI / 2; g.add(boom);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 9), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x330000 })); arm.position.z = 4.5; boom.add(arm);
+      for (let i = 0; i < 4; i++) { const st = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.13, 1), new THREE.MeshBasicMaterial({ color: 0xd02020 })); st.position.z = 1 + i * 2.2; boom.add(st); }
+      this.gate = { boom, s: Y.ramp[0] };
+      this.living.push({ k, update: () => { const pl = this.gamePlayer?.(); const near = pl && Math.abs(pl.road.s - Y.ramp[0]) < 25 && pl.road.d < -20 && pl.road.d > -50; boom.rotation.x += ((near ? -1.3 : 0) - boom.rotation.x) * 0.08; } });
+      // clôture
+      for (let sv = Y.s0; sv < Y.s1; sv += 6) { if (sv < s0 || sv >= s1) continue; roadToWorld(sv, Y.d1 - 6, _p); const fp = add(new THREE.BoxGeometry(0.08, 2.2, 6), new THREE.MeshStandardMaterial({ color: 0x6a7078, transparent: true, opacity: 0.6 })); fp.position.set(_p.x, 1.1, _p.z); fp.rotation.y = roadYaw(sv); }
     }
   }
 
@@ -620,7 +687,7 @@ export class World {
   buildScenery(g, s0, s1, r, k, tun, c) {
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pos = new THREE.Vector3(), col = new THREE.Color();
     const onD77 = (s, d) => (s > EXIT15[0] - 20 && s < D77.s0 + 30 && d < -14 && d > -150) || (s > D77.s0 - 30 && s < D77.s1 + 140 && d < -126 && d > -156) || (s > D77.s1 - 20 && s < DEST.s0 + 20 && d < -55 && d > -150) || (s > VILLAGE.s0 - 60 && s < VILLAGE.s1 + 60 && d < -100 && d > -215);
-    const blocked = (s, d) => onD77(s, d) || (d < -18 && d > -100 && REST_AREAS.some(ra => s > ra.s0 - 50 && s < ra.s1 + 50)) || (d < -18 && d > -170 && s > EXIT_GAP[0] - 20 && s < DEST.s1 + 40) || (tun && s > tun[0] - 10 && s < tun[1] + 10 && Math.abs(d) < 62);
+    const blocked = (s, d) => onD77(s, d) || (d < -18 && d > -100 && REST_AREAS.some(ra => s > ra.s0 - 50 && s < ra.s1 + 50)) || (d < -18 && d > -215 && s > EXIT_GAP[0] - 20 && s < DEST.s1 + 40) || (d < -14 && d > -200 && s > -560 && s < -30) || (tun && s > tun[0] - 10 && s < tun[1] + 10 && Math.abs(d) < 62);
     // champs
     const nf = 6, fi = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), this.fieldMat, nf);
     const fc = [0xd8c070, 0x86a040, 0x8a6a48, 0xa8b860, 0x6f8f3a, 0xc8a050];

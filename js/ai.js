@@ -1,7 +1,7 @@
 // Pilotes IA : police tactique (meneur / flanc / arrière / bretelle) et camion en fuite.
 // Ils « comprennent » la situation : ils évitent les civils (angle mort, épaves, chantiers), utilisent la BAU,
 // encerclent le camion quand il ralentit, gardent la sortie 18 quand il s'en approche, se replacent s'ils sont distancés.
-import { laneD, SHOULDER_D, roadToWorld, roadYaw, clamp, DEST, DEST_S, EXIT_GAP, worldToRoad, EXIT15, D77, REST_AREAS } from './config.js';
+import { laneD, SHOULDER_D, roadToWorld, roadYaw, clamp, DEST, DEST_S, EXIT_GAP, worldToRoad, EXIT15, D77, REST_AREAS, YARD_END } from './config.js';
 
 const _p = { x: 0, z: 0 }, _r = { s: 0, d: 0 };
 const LEFT = laneD(1, 0) + 1.0, RIGHT = SHOULDER_D(1) - 0.3;
@@ -86,6 +86,7 @@ export class AIDriver {
       ({ wantD, wantV, aimPoint } = this.flee(wantD, wantV, s, d, spd));
     } else if (this.role === 'cruise') wantV = Math.min(wantV, this.speedCap / 3.6);
 
+    if (v.blindT > 0) { v.blindT -= dt; wantV *= 0.45; wantD += Math.sin(g.time * 3 + (v.unit || 0)) * 1.5; }
     if (g.confuseT > 0 && this.role === 'chase') { wantV *= 0.5; wantD = lanes[(Math.floor(g.time * 0.4) + (this.v.unit || 0)) % 3]; }
     wantD = clamp(wantD, RIGHT, LEFT);
     // ne pas se rabattre sur un civil qui est à côté
@@ -192,6 +193,7 @@ export class AIDriver {
     if (s > DEST.s0 - 240) {
       const ms = (DEST.s0 + DEST.s1) / 2, md = (DEST.d0 + DEST.d1) / 2;
       if (s < DEST.s0 - 40) { wantD = -14 - (s - (DEST.s0 - 240)) / 200 * 8; wantV = 18; }
+      else if (this.v === g.player) { const bs = YARD_END.bays[g.world.targetBay]; const near = Math.abs(s - bs) < 25 && d < -60; roadToWorld(bs, near ? YARD_END.whD0 + 6 : -70, _p); aimPoint = { x: _p.x, z: _p.z }; wantV = near ? 3 : 8; if (near && Math.abs(s - bs) < 2 && d < YARD_END.whD0 + 14) wantV = 0; }
       else { roadToWorld(ms + 20, md, _p); aimPoint = { x: _p.x, z: _p.z }; wantV = 9; }
     }
     return { wantD, wantV, aimPoint };

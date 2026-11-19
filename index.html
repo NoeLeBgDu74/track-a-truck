@@ -199,7 +199,7 @@ body:not([data-state="menu"]) #vrbtn { display:none; }
 #cine-skip { position:absolute; right:24px; bottom:calc(12vh + 14px); pointer-events:auto; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.3); color:#fff; padding:8px 16px; border-radius:999px; font:600 13px Inter; }
 body[data-state="cine"] #hud { display:none; }
 /* coop */
-#coop { display:none; position:fixed; left:50%; bottom:10px; transform:translateX(-50%); z-index:12; width:min(760px,64vw); background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:8px 10px; backdrop-filter:blur(6px); }
+#coop { display:none; position:fixed; left:50%; bottom:10px; transform:translateX(-50%); z-index:12; width:min(900px,70vw); background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:8px 10px; backdrop-filter:blur(6px); }
 body.coop[data-state="play"] #coop, body.coop[data-state="countdown"] #coop { display:block; }
 #coop-role { font:700 12px Rajdhani; letter-spacing:.12em; color:var(--acc2); text-align:center; text-transform:uppercase; margin-bottom:6px; }
 #coop-chars { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
@@ -281,7 +281,7 @@ body.slowmo #hud, body.slowmo #coop { display:none !important; }
 .mg-map button, .mg-ing button { font:700 26px Rajdhani; padding:18px; border-radius:8px; border:2px solid rgba(0,0,0,.2); background:#fff7e0; cursor:pointer; color:#5a4a2a; }
 .mg-map button.done, .mg-ing button.done { opacity:.25; }
 .mg-order { font-size:26px; margin-bottom:10px; } .mg-ing { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; } .mg-ing small { display:block; font:600 10px Inter; }
-#coop-acts { grid-template-columns:repeat(8,1fr); } #coop-acts.roof .ca[data-a="roof"] { background:rgba(255,122,26,.35); }
+#coop-acts { grid-template-columns:repeat(11,1fr); } .ca.empty { opacity:.35; } .ca span { font-size:9px; } #coop-acts.roof .ca[data-a="roof"] { background:rgba(255,122,26,.35); }
 /* tactile */
 #touch { position:fixed; inset:0; z-index:15; pointer-events:none; display:none; }
 body.touch[data-state="play"] #touch { display:block; }
