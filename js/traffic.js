@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { TRAFFIC_TYPES, laneD, roadToWorld, roadYaw, rng, clamp, settings, worldToRoad, D77, VILLAGE } from './config.js';
 const d77D = dir => D77.d - dir * 1.8; // voie de la départementale selon le sens
 import { buildTraffic } from './models.js';
+import { pickLine } from './brain.js';
 
 const _p = { x: 0, z: 0 }, _r = { s: 0, d: 0 };
 const DENS = { low: 26, normal: 44, high: 64 };
@@ -235,10 +236,10 @@ export class Traffic {
         // le camion fou arrive vite derrière (ou la poursuite) : panique, on s'écarte
         const wild = (g.released && g.mode !== 'free' && (tk.kmh > 70 || g.police.some(p => p.v.siren && p.v.curPos.distanceToSquared(tk.curPos) < 150 * 150))) || tk.kmh > 150 || (closing > 16 && Math.abs(tk.road.d - car.d) < 2.2 && ds > -35) || tk.damage > 60;
         if (sameSide && ds < -car.back && ds > -80 && wild) {
-          if (car.feel !== 'panic') { car.feel = 'panic'; car.feelT = 5; car.hazard = 4; if (car.persona !== 'distrait') g.bubble?.(car, ['Mais il est fou ce camion !', 'AAAH il arrive !', 'Je me pousse, je me pousse !', 'C’est quoi ce délire ?!'][Math.floor(this.r() * 4)]); }
+          if (car.feel !== 'panic') { car.feel = 'panic'; car.feelT = 5; car.hazard = 4; if (car.persona !== 'distrait') g.bubble?.(car, pickLine('panique', ['Mais il est fou ce camion !', 'AAAH il arrive !', 'Je me pousse, je me pousse !', 'C’est quoi ce délire ?!'])); }
         }
         // curiosité : la police et l'hélicoptère
-        if (g.heliOn && Math.abs(ds) < 120 && this.r() < 0.002) g.bubble?.(car, ['Un hélico ?! C’est un film ?', 'Regarde là-haut !'][Math.floor(this.r() * 2)]);
+        if (g.heliOn && Math.abs(ds) < 120 && this.r() < 0.002) g.bubble?.(car, pickLine('helico', ['Un hélico ?! C’est un film ?', 'Regarde là-haut !']));
       }
       if (car.feel === 'panic') { v0 *= 0.75; yieldSiren = yieldSiren || { s: car.s - car.dir * 50, d: car.d }; }
       if (car.feel === 'angry') v0 *= 1.15;
@@ -265,8 +266,8 @@ export class Traffic {
       car.flashCd -= dt; if (car.yieldReq > 0) car.yieldReq -= dt;
       if (car.persona === 'presse' && car.flashCd <= 0 && lead.o?.car && !lead.o.wreck && lead.gap < 28 && car.lane < 2 && Math.abs(lead.o.v) < v0 - 3.5) {
         car.flashCd = 6 + this.r() * 6; car.flash = 0.7; const lc2 = lead.o.car; lc2.yieldReq = 6;
-        if (this.r() < 0.35) g.bubble?.(car, ['Allez, pousse-toi !', 'La voie de gauche c’est pour doubler !', 'Il se croit seul au monde…'][Math.floor(this.r() * 3)]);
-        else if (this.r() < 0.3) g.bubble?.(lc2, ['Oui oui, ça va…', 'Calme-toi, j’y vais !', 'Toujours pressés ceux-là…'][Math.floor(this.r() * 3)]);
+        if (this.r() < 0.35) g.bubble?.(car, pickLine('appel_phares', ['Allez, pousse-toi !', 'La voie de gauche c’est pour doubler !', 'Il se croit seul au monde…']));
+        else if (this.r() < 0.3) g.bubble?.(lc2, pickLine('rabattu', ['Oui oui, ça va…', 'Calme-toi, j’y vais !', 'Toujours pressés ceux-là…']));
       }
       car.lcT -= dt;
       if (!car.lc && car.lcT <= 0 && !car.d77) {
@@ -327,8 +328,8 @@ export class Traffic {
 
       if (lead.o?.veh && lead.o.veh === g.player && lead.gap < 4.5 && car.v > 12 && car.v - (lead.o.v || 0) > 3 && this.honkCd <= 0) {
         this.honkCd = 2.5; g.audio?.honkAt(car.cur, car.type.trucks);
-        if (car.persona === 'presse' || car.persona === 'calme' && this.r() < 0.3) { car.feel = 'angry'; car.feelT = 7; car.flash = 1.5; g.bubble?.(car, ['Non mais ho !', 'Apprends à conduire !', 'Espèce de chauffard !', 'Tu vas voir toi…'][Math.floor(this.r() * 4)]); }
-        else g.bubble?.(car, ['Oh là là…', 'Il m’a fait peur !'][Math.floor(this.r() * 2)]);
+        if (car.persona === 'presse' || car.persona === 'calme' && this.r() < 0.3) { car.feel = 'angry'; car.feelT = 7; car.flash = 1.5; g.bubble?.(car, pickLine('colere', ['Non mais ho !', 'Apprends à conduire !', 'Espèce de chauffard !', 'Tu vas voir toi…'])); }
+        else g.bubble?.(car, pickLine('peur', ['Oh là là…', 'Il m’a fait peur !']));
       }
       if (car.flash > 0) car.flash -= dt;
     }
@@ -456,20 +457,21 @@ export class Traffic {
     if (car.airbag && R.t > 6) { car.airbag.scale.multiplyScalar(0.97); if (car.airbag.scale.x < 0.3) { car.mesh.remove(car.airbag); car.airbag = null; } }
     const still = car.v < 1.2;
     const moto = car.type.moto, sev = car.sev ?? 0, angry = car.persona === 'presse' || car.mood > 0.6;
+    if (R.stage === 0 && car.riderObj) R.stage = 1; // le motard au sol parle lui-même
     if (R.stage === 0 && R.t > 1.6 && still) {
       R.stage = 1;
       const L = moto ? ['Aïe… ma jambe…', 'Mon bras ! Il m’a fauché !', 'Ma bécane…'] : sev >= 2 ? ['😵 …qu’est-ce qui s’est passé ?', 'Aïe… ma nuque…', 'Les secours ! Appelez les secours !'] : angry ? ['Non mais ÇA VA PAS ?!', 'Ma voiture neuve !!', 'Espèce de chauffard !!', 'T’as vu ce que t’as fait ?!'] : ['Oh non… oh non non non.', 'Mais enfin, vous ne regardez pas devant vous ?', 'Ça va pas, non ?'];
-      g.bubble?.(car, L[Math.floor(Math.random() * L.length)]);
+      g.bubble?.(car, pickLine(moto ? 'moto_blesse' : sev >= 2 ? 'choc_grave' : angry ? 'accroche_colere' : 'accroche', L));
       if (!moto && sev < 2 && angry) g.audio?.horn?.(car.cur, 1.2);
     }
     if (R.stage === 1 && R.t > (sev >= 2 ? 6 : 3.6) && still && Math.abs(car.quat ? 1 - 2 * (car.quat.x ** 2 + car.quat.z ** 2) : 1) > 0.6) {
-      R.stage = 2; this.spawnPed(car, moto ? 'hurt' : sev >= 2 ? 'dazed' : angry ? 'angry' : 'phone');
+      R.stage = 2; if (!car.riderObj) this.spawnPed(car, moto ? 'hurt' : sev >= 2 ? 'dazed' : angry ? 'angry' : 'phone');
     }
     if (R.stage === 2 && R.t > 9) {
       R.stage = 3;
       const tk = g.targetTruck?.();
-      if (tk && car.cur.distanceTo(tk.curPos) < 400 && g.mode !== 'free' && g.state === 'play' && g.released) { g.heat = Math.min(100, (g.heat || 0) + 4); g.bubble?.(car, '📱 Allô le 17 ? Un camion vient de me rentrer dedans !'); }
-      else g.bubble?.(car, ['📱 Allô ? Oui, je viens d’avoir un accident…', '📱 Chérie ? Je vais être en retard…', '📱 Allô, l’assurance ?'][Math.floor(Math.random() * 3)]);
+      if (tk && car.cur.distanceTo(tk.curPos) < 400 && g.mode !== 'free' && g.state === 'play' && g.released) { g.heat = Math.min(100, (g.heat || 0) + 4); g.bubble?.(car, pickLine('appel_17', ['📱 Allô le 17 ? Un camion vient de me rentrer dedans !'])); }
+      else g.bubble?.(car, pickLine('telephone', ['📱 Allô ? Oui, je viens d’avoir un accident…', '📱 Chérie ? Je vais être en retard…', '📱 Allô, l’assurance ?']));
       if (car.ped) car.ped.mode = 'phone';
     }
     if (car.ped) this.pedStep(car, dt);
@@ -534,6 +536,10 @@ export class Traffic {
     const R = this.game.R;
     car.wreck = true; car.wreckT = 0; car.brake = true; car.hazard = 1;
     if (hit) this.crashFx(car, hit);
+    if (car.type.moto && car.mesh.userData.rider && !this.game.mirror) { // le motard civil est éjecté, la moto se couche
+      car.riderObj = this.game.ejectRider?.(car.mesh.userData.rider, { x: Math.sin(car.curYaw) * car.v + (hit?.rvx || 0) * 0.3, z: Math.cos(car.curYaw) * car.v + (hit?.rvz || 0) * 0.3 }, null);
+      car.motoFall = true;
+    }
     if (this.game.netTraffic) { car.localWreck = true; this.game.net.send({ t: 'wreck', id: car.id, vx: +vx.toFixed(1), vz: +vz.toFixed(1) }); }
     for (const b of [car.body, car.trailer?.body]) {
       if (!b) continue;
@@ -541,6 +547,7 @@ export class Traffic {
       b.enableCcd(true);
       b.setLinvel({ x: vx, y: 0, z: vz }, true);
       b.setAngularDamping(1.2); b.setLinearDamping(0.3);
+      if (car.type.moto) { const f = car.curYaw; b.setAngvel({ x: Math.sin(f) * 3.5 * (Math.random() < 0.5 ? 1 : -1), y: 0, z: Math.cos(f) * 3.5 }, true); b.setLinearDamping(0.9); }
     }
     this.game.stats.crashes++;
     // les témoins appellent la police
@@ -548,7 +555,7 @@ export class Traffic {
     if (tk && car.cur.distanceTo(tk.curPos) < 40 && g.mode !== 'free' && g.state === 'play') {
       g.heat = Math.min(100, (g.heat || 0) + 3);
       const w = this.cars.find(o => !o.wreck && o !== car && o.cur.distanceTo(car.cur) < 80);
-      if (w) { g.bubble?.(w, 'J’appelle le 17 !'); w.hazard = 6; g.say?.('witness', `Un témoin signale le camion au PK ${(car.s / 1000).toFixed(1)}.`, 20); }
+      if (w) { g.bubble?.(w, pickLine('temoin', ['J’appelle le 17 !'])); w.hazard = 6; g.say?.('witness', `Un témoin signale le camion au PK ${(car.s / 1000).toFixed(1)}.`, 20); }
     }
     this.game.onTrafficCrash?.(car);
   }

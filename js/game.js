@@ -20,7 +20,7 @@ import { Coop, ACTIONS, GAGS } from './coop.js';
 import { Mini } from './minigame.js';
 import { Listener, understand } from './speech.js';
 import { Admin } from './admin.js';
-import { Brain, directorTick, copilotReply, copilotBanter } from './brain.js';
+import { Brain, directorTick, copilotReply, copilotBanter, refillLines, pickLine } from './brain.js';
 import { Cinematic, storyShots } from './cine.js';
 import { Showroom } from './showroom.js';
 import { buildPoliceCar, buildPlayerTruck, buildTrailer, makeWheel, buildPerson, buildSeated, initMaterials, MAT } from './models.js';
@@ -137,8 +137,9 @@ export class Game {
     this.heat = (M?.heat || 0) * 20; this.cargo = 100; this.allies = []; this.playerArrived = false; this.nextBlock = 75; this.heliOn = false; this.heliT = 0; this.headStart = this.team === 'truck' ? 15 : 10; this.released = false;
     this.stats = { crashes: 0, topSpeed: 0, dist: 0, start: 0, busts: 0 };
     this.nextReinforce = 55; this.blockDone = !diff.block && !(M?.heat >= 3); this.ended = false; this.radioT = 18; this.tacticT = 0;
-    this.check = null; if (this.checkMesh) { this.scene.remove(this.checkMesh); this.checkMesh = null; }
+    this.arrest = null; this.check = null; if (this.checkMesh) { this.scene.remove(this.checkMesh); this.checkMesh = null; }
     (this.officers || []).forEach(o => this.scene.remove(o.grp)); this.officers = [];
+    (this.riders || []).forEach(r => this.scene.remove(r.piv)); this.riders = [];
     this.unitN = 1; this.score = 0; this.combo = 0; this.comboT = 0;
 
     if (cfg.mirror) return this.startMirror(cfg);
@@ -322,6 +323,7 @@ export class Game {
         if (inp.hit('KeyC') && this.player && !this.person) this.hud.toast(CAM_NAMES[this.camRig.cycle()]);
         this.camRig.lookBack = inp.down('KeyX');
         this.camRig.update(dt, this.player, inp, this.person);
+        if (this.arrest?.truck) { const A = this.arrest, c = A.truck.curPos; A.angle += dt * 0.18; const r = 16, a = A.truck.yaw + 0.9 + A.angle; this.camera.position.set(c.x + Math.sin(a) * r, 5.5, c.z + Math.cos(a) * r); this.camera.lookAt(c.x, 1.5, c.z); }
       }
       if (this.coop) { this.coopCamFx(dt); this.updateCrew(dt, copCam); }
     }
@@ -529,7 +531,7 @@ export class Game {
     }
     // commandes joueur
     if (pl && !this.person) {
-      const lockedPolice = this.state !== 'play' || (this.mode === 'chase' && this.team === 'police' && this.time < this.headStart);
+      const lockedPolice = this.state !== 'play' || !!this.arrest || (this.mode === 'chase' && this.team === 'police' && this.time < this.headStart);
       let input;
       if (this.state === 'play' && !lockedPolice) {
         if (this.coop) input = this.coopDriverInput(dt);
@@ -785,10 +787,12 @@ export class Game {
 
   // ---------- IA (modèle de langage) : directeur des PNJ et de la police, copilote bavard ----------
   brainStep(dt) {
-    this.officersStep(dt);
+    this.officersStep(dt); this.ridersStep(dt);
     if (this.mirror || this.netTraffic || !Brain.enabled()) return;
     this.brainT = (this.brainT ?? 4) - dt;
-    if (this.brainT <= 0) { this.brainT = 9; directorTick(this); }
+    this.linesT = (this.linesT ?? 1) - dt;
+    if (this.linesT <= 0 && !Brain.busy) { this.linesT = Brain.wantLines ? 12 : 30; Brain.wantLines = false; refillLines(this); }
+    else if (this.brainT <= 0 && !Brain.busy) { this.brainT = 9; directorTick(this); }
     if (this.coop && this.coopKind === 'solo') {
       this.banterT = (this.banterT ?? 40) - dt;
       if (this.banterT <= 0) { this.banterT = 45 + Math.random() * 30; copilotBanter(this).then(r => { if (r?.remarque && this.state === 'play' && this.coop) { this.coopMsg(`${this.coop.cop.name} : « ${String(r.remarque).slice(0, 120)} »`); this.crewAnim[1 - this.coop.driver] = { type: 'laugh', t: 0, dur: 1.5 }; } }); }
@@ -796,16 +800,18 @@ export class Game {
   }
 
   // ---------- gendarmes à pied (barrages, véhicule HS) ----------
-  addOfficer(s, d, yawOff, mode, life) {
-    const M = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7 }), uni = M(0x1d2f5a), skin = M(0xe0b090), refl = new THREE.MeshStandardMaterial({ color: 0xd8e030, emissive: 0x303000, roughness: 0.6 });
+  addOfficer(s, d, yawOff, mode, life) { const p = this.roadPose(s, d); const o = this.addPerson(p.x, p.z, p.yaw + yawOff, mode, life); o.s = s; o.d = d; return o; }
+  addPerson(x, z, yaw, mode, life, civil) {
+    const M = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7 }), uni = M(civil ? civil.pants : 0x1d2f5a), skin = M(0xe0b090), refl = civil ? M(civil.top) : new THREE.MeshStandardMaterial({ color: 0xd8e030, emissive: 0x303000, roughness: 0.6 });
     const grp = new THREE.Group(), body = new THREE.Group(); grp.add(body);
     const bx = (m, w, h, dd, x, y, z, par = body) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, dd), m); o.position.set(x, y, z); o.castShadow = true; par.add(o); return o; };
     const legs = [-1, 1].map(sx => { const l = new THREE.Group(); l.position.set(sx * 0.11, 0.85, 0); bx(uni, 0.15, 0.85, 0.18, 0, -0.42, 0, l); body.add(l); return l; });
     bx(refl, 0.46, 0.62, 0.26, 0, 1.18, 0); bx(skin, 0.22, 0.25, 0.22, 0, 1.64, 0); bx(uni, 0.27, 0.08, 0.3, 0, 1.8, 0.02);
     const arms = [-1, 1].map(sx => { const a = new THREE.Group(); a.position.set(sx * 0.3, 1.45, 0); bx(uni, 0.11, 0.6, 0.11, 0, -0.28, 0, a); body.add(a); return a; });
-    const p = this.roadPose(s, d); grp.position.set(p.x, 0, p.z); grp.rotation.y = p.yaw + yawOff;
+    if (civil) { body.children.forEach(c => { if (c.position.y > 1.75) c.visible = false; }); arms.forEach(a => a.children[0].material = refl); }
+    grp.position.set(x, 0, z); grp.rotation.y = yaw;
     this.scene.add(grp);
-    (this.officers ||= []).push({ grp, body, arms, legs, mode, t: 0, life, s, d, dive: 0 });
+    const o = { grp, body, arms, legs, mode, t: 0, life, dive: 0 }; (this.officers ||= []).push(o); return o;
   }
   officersStep(dt) {
     if (!this.officers?.length) return;
@@ -822,9 +828,81 @@ export class Game {
       } else if (o.mode === 'up') { o.body.rotation.z *= 0.96; if (t > 2) { o.mode = 'angry'; o.t = 0; } }
       else if (o.mode === 'angry') { L.rotation.x = -2.4 + Math.sin(t * 9) * 0.6; R.rotation.x = -2.2 + Math.cos(t * 8) * 0.7; o.legs[0].rotation.x = Math.sin(t * 6) * 0.15; if (t > 4) { o.mode = 'radio'; o.t = 0; } }
       else if (o.mode === 'radio') { R.rotation.x = -2.6; R.rotation.z = 0.4; L.rotation.x = 0; }
+      else if (o.mode === 'aim') { R.rotation.x = -1.5; L.rotation.x = -1.45; L.rotation.z = -0.35; if (o.walk) { const k = Math.min(1, dt * 1.2 / Math.max(0.3, o.grp.position.distanceTo(o.walk))); if (k < 1) { o.grp.position.lerp(o.walk, k); o.legs[0].rotation.x = Math.sin(t * 8) * 0.5; o.legs[1].rotation.x = -Math.sin(t * 8) * 0.5; } else { o.walk = null; o.legs.forEach(l => l.rotation.x = 0); } } }
+      else if (o.mode === 'hands') { L.rotation.x = R.rotation.x = Math.PI; L.rotation.z = 0.25; R.rotation.z = -0.25; if (o.walk) { o.grp.position.lerp(o.walk, Math.min(1, dt * 0.6)); o.legs[0].rotation.x = Math.sin(t * 6) * 0.35; o.legs[1].rotation.x = -Math.sin(t * 6) * 0.35; } }
+      else if (o.mode === 'kneel') { L.rotation.x = R.rotation.x = Math.PI; o.body.position.y += (-0.45 - o.body.position.y) * Math.min(1, dt * 3); o.legs.forEach(l => l.rotation.x = -1.4); }
       if ((o.life -= dt) <= 0) { this.scene.remove(o.grp); o.dead = true; }
     }
     this.officers = this.officers.filter(o => !o.dead);
+  }
+
+  // ---------- motard éjecté : vol, roulade, glissade, puis allongé au sol ----------
+  ejectRider(rider, vel, label) {
+    if (!rider || rider.userData.ejected) return null; rider.userData.ejected = true;
+    rider.updateMatrixWorld(true);
+    const piv = new THREE.Group(); piv.position.copy(rider.localToWorld(new THREE.Vector3(0, 1.0, -0.2)));
+    rider.getWorldQuaternion(piv.quaternion); this.scene.add(piv); piv.attach(rider);
+    const v = new THREE.Vector3(vel.x, 0, vel.z), sp = v.length();
+    v.multiplyScalar(0.9); v.y = 2.5 + Math.min(4, sp * 0.12);
+    const axis = new THREE.Vector3(v.z, 0, -v.x).normalize(); if (!isFinite(axis.x) || axis.lengthSq() < 0.5) axis.set(1, 0, 0);
+    const R = { piv, rider, vel: v, axis, w: 3 + sp * 0.35, t: 0, state: 'fly', label, cur: piv.position, mesh: piv, type: { h: -0.6 } };
+    (this.riders ||= []).push(R);
+    this.audio?.crash?.(piv.position, 5);
+    return R;
+  }
+  ridersStep(dt) {
+    if (!this.riders?.length) return;
+    for (const R of this.riders) {
+      R.t += dt; const p = R.piv.position, v = R.vel;
+      if (R.state === 'fly' || R.state === 'slide') {
+        v.y -= 9.81 * dt; p.addScaledVector(v, dt);
+        R.piv.rotateOnWorldAxis(R.axis, R.w * dt);
+        if (p.y < 0.28) {
+          p.y = 0.28;
+          if (v.y < -2) { v.y = -v.y * 0.3; R.w *= 0.7; if (R.t > 0.2) this.particles?.emit(p.x, 0.2, p.z, 0, 0.5, 0, 1, 0.4, 1, 0x9a9a8a, 0.35); } else v.y = 0;
+          const k = Math.exp(-2.6 * dt); v.x *= k; v.z *= k; R.w *= Math.exp(-1.8 * dt); R.state = 'slide';
+          if (Math.random() < 0.3 && Math.hypot(v.x, v.z) > 4) this.particles?.emit(p.x, 0.1, p.z, (Math.random() - 0.5), 0.3, (Math.random() - 0.5), 0.5, 0.06, 0, 0xffb040, 1);
+          if (Math.hypot(v.x, v.z) < 0.6 && Math.abs(v.y) < 0.5) {
+            R.state = 'lie'; R.t = 0; const e = new THREE.Euler().setFromQuaternion(R.piv.quaternion, 'YXZ');
+            R.rest = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, e.y, 0.15, 'YXZ'));
+          }
+        }
+      } else if (R.state === 'lie') {
+        R.piv.quaternion.slerp(R.rest, Math.min(1, dt * 3)); p.y += (0.2 - p.y) * Math.min(1, dt * 3);
+        if (R.t > 2.5 && !R.said) { R.said = true; this.bubble?.(R, pickLine('moto_blesse', ['Aïe… ma jambe…', 'Mon bras ! Il m’a fauché !', 'Ma bécane…', 'Ouch… je sens plus mes doigts…'])); if (R.label) this.say('mfall' + R.label, `${R.label} : « Je suis au sol ! Moto HS ! »`, 30); }
+        // bouge un bras de temps en temps (conscient)
+        const arm = R.rider.children[0]; if (arm && R.t > 3) R.piv.rotation.z += Math.sin(R.t * 1.3) * 0.0015;
+      }
+      if (R.t > 60 && R.state === 'lie') { this.scene.remove(R.piv); R.dead = true; }
+    }
+    this.riders = this.riders.filter(r => !r.dead);
+  }
+
+  // ---------- scène d'interpellation ----------
+  startArrest(truck) {
+    const A = this.arrest; A.truck = truck;
+    for (const p of this.police) if (p.ai) { p.ai.role = 'idle'; p.v.siren = true; }
+    const yaw = truck.yaw, fx = Math.sin(yaw), fz = Math.cos(yaw), lx = Math.cos(yaw), lz = -Math.sin(yaw), c = truck.curPos;
+    const front = truck.def.len / 2 - 1.2;
+    const at = (f, l) => new THREE.Vector3(c.x + fx * f + lx * l, 0, c.z + fz * f + lz * l);
+    A.cops = [[front + 7, 3.5, front + 3.5, 2.6], [front + 8, -3, front + 4, -2.4], [front - 9, 5, front - 1, 3.2]].map(([f0, l0, f1, l1]) => { const p0 = at(f0, l0), p1 = at(f1, l1); const o = this.addPerson(p0.x, p0.z, Math.atan2(c.x + fx * front - p0.x, c.z + fz * front - p0.z), 'aim', 30); o.walk = p1; return o; });
+    A.door = at(front, truck.def.w / 2 + 0.7); A.kneel = at(front, truck.def.w / 2 + 2.6);
+    this.hud.big('INTERPELLATION', 'wanted'); this.audio.music?.('off');
+    const sayCop = t => { this.hud.msg(`👮 Gendarmerie : « ${t} »`, 'pol'); Voice.say(t, { pitch: 0.75, rate: 1.1, voice: 1 }); };
+    A.lines = [[0.3, 'GENDARMERIE ! Coupez le moteur ! Les mains sur le volant !'], [3.2, 'Sortez du véhicule. Lentement. Les mains en l’air !'], [6.2, 'À genoux ! Les mains sur la tête !'], [8.6, 'Vous êtes en état d’arrestation pour transport de marchandise illégale.']];
+    A.say = sayCop; A.idx = 0; A.angle = 0;
+  }
+  arrestStep(dt) {
+    const A = this.arrest; A.t += dt;
+    while (A.idx < A.lines.length && A.t >= A.lines[A.idx][0]) A.say(A.lines[A.idx++][1]);
+    const tk = A.truck, c = tk.curPos;
+    if (A.t > 3.6 && !A.driver) {
+      const crew = this.coop ? 2 : 1; A.driver = [];
+      for (let i = 0; i < crew; i++) { const o = this.addPerson(A.door.x, A.door.z, tk.yaw - Math.PI / 2, 'hands', 30, { top: i ? 0x3a5a2a : 0x8a2a2a, pants: 0x2a3550 }); o.walk = A.kneel.clone().add(new THREE.Vector3(Math.cos(tk.yaw) * i * 1.2, 0, -Math.sin(tk.yaw) * i * 1.2)); A.driver.push(o); }
+      if (this.coop) setTimeout(() => this.state === 'play' && this.coopMsg(`${this.coop.cop?.name || 'Gégé'} : « C’est lui qui conduisait ! Moi j’étais juste là pour les sandwichs ! »`), 1500);
+    }
+    if (A.t > 6.6 && A.driver && !A.knelt) { A.knelt = true; A.driver.forEach(o => { o.mode = 'kneel'; o.walk = null; }); }
+    if (A.t > 11) { const [w, ti, su] = A.args; this.arrest = null; this.finish(w, ti, su); }
   }
 
   // ---------- contrôle routier de départ ----------
@@ -1127,6 +1205,7 @@ export class Game {
   // ---------- règles de la poursuite ----------
   rules(dt) {
     const pl = this.player;
+    if (this.arrest?.args) return this.arrestStep(dt);
     if (this.mode === 'free' || this.mode === 'online') { if (this.mode === 'online') this.onlineRules(dt); return; }
     this.timeLeft -= dt;
     const truck = this.targetTruck();
@@ -1185,7 +1264,8 @@ export class Game {
       else this.bust = Math.max(0, this.bust - dt / 5);
       if (truck.disabled) this.bust = 1;
       if (truck.upright < 0.3 && truck.kmh < 5) this.bust = Math.min(1, this.bust + dt / 2);
-      if (this.bust >= 1) return this.finish(this.team === 'police', this.team === 'police' ? 'Suspect interpellé !' : (this.coop ? 'Les routiers sont arrêtés !' : 'Vous avez été interpellé.'), truck.disabled ? 'Le camion est hors d’usage.' : (this.coop ? 'La Tomme Dorée finira en tube. Quelle tristesse.' : 'La police a immobilisé le camion.'));
+      if (this.bust >= 1 && !this.arrest && !this.mirror) { this.arrest = { t: 0, args: null }; }
+      if (this.bust >= 1 && this.arrest && !this.arrest.args) { this.arrest.args = [this.team === 'police', this.team === 'police' ? 'Suspect interpellé !' : (this.coop ? 'Les routiers sont arrêtés !' : 'Vous avez été interpellé.'), truck.disabled ? 'Le camion est hors d’usage.' : (this.coop ? 'La Tomme Dorée finira en tube. Quelle tristesse.' : 'La police a immobilisé le camion.')]; this.startArrest(truck); return; }
       const rd = truck.road;
       const inDepot = r2 => r2.s > DEST.s0 && r2.s < DEST.s1 && r2.d < DEST.d0 + 2 && r2.d > DEST.d1;
       if (this.mission?.obj === 'fragile' && inDepot(rd) && this.cargo < 40) return this.finish(false, 'Cargaison ruinée', `Il ne reste que ${Math.round(this.cargo)} % de Tomme Dorée intacte. Le client refuse la livraison.`);

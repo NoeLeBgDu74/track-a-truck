@@ -85,7 +85,7 @@ function applyDecisions(g, res, near, units, truck) {
     if (a === 'appeler_police' && g.mode !== 'free' && g.team === 'truck') { g.heat = Math.min(100, (g.heat || 0) + 3); g.say?.('ia-witness', `Un automobiliste signale le camion au PK ${(truck.road.s / 1000).toFixed(1)}.`, 18); }
     if ((a === 'se_rabattre' || a === 'laisser_passer') && !c.lc && !c.d77 && c.lane < 2) c.lc = { from: c.lane, to: c.lane + 1, t: 0, dur: 3 };
     const calm = !(g.released && g.mode !== 'free') && truck.kmh < 120 && truck.damage < 40;
-    if (d.pensee && bubbles < (calm ? 1 : 3) && Math.random() < (calm ? 0.35 : 0.85)) { g.bubble?.(c, (a === 'filmer' ? '📱 ' : '') + String(d.pensee).slice(0, 110)); bubbles++; }
+    if (d.pensee && bubbles < (calm ? 1 : 3) && Math.random() < (calm ? 0.6 : 0.9)) { g.bubble?.(c, (a === 'filmer' ? '📱 ' : '') + String(d.pensee).slice(0, 110)); bubbles++; }
   }
   const P = res.police; if (!P || !g.released || g.mode === 'free') return;
   const map = { devant_freiner: 'lead', flanc: 'flank', derriere: 'tail', rester_a_distance: 'tail', garder_sortie: 'guard' };
@@ -118,4 +118,40 @@ export async function copilotBanter(g) {
   const c = g.coop, pl = g.player; if (!c || !pl) return null;
   const sit = { vitesse_kmh: Math.round(pl.kmh), police_m: Math.round(g.nearestPolice(pl.curPos).d), meteo: g.env.weather, nuit: g.env.night > 0.5, gag: c.gag?.id || 'aucun', faim: Math.round(c.drv.faim), fatigue: Math.round(c.drv.fatigue) };
   return Brain.ask([{ role: 'system', content: `Tu es ${c.cop.name}, routier copilote drôle. Fais UNE remarque spontanée (≤ 16 mots) sur la situation, en français familier. JSON : {"remarque":"…"}` }, { role: 'user', content: JSON.stringify(sit) }], 120);
+}
+
+// ----- répliques générées par l'IA : réserve renouvelée en continu, piochée par toutes les réactions -----
+// (les phrases écrites à la main ne servent plus que si l'IA ne répond pas)
+const LINE_CATS = {
+  panique: 'automobiliste qui voit un camion fou (poursuivi par la police) foncer derrière lui',
+  colere: 'automobiliste furieux, le camion lui a collé au pare-choc / coupé la route',
+  peur: 'automobiliste calme qui vient d’avoir une grosse frayeur',
+  appel_phares: 'conducteur pressé qui fait des appels de phares à un lent sur la voie de gauche',
+  rabattu: 'conducteur lent qui se rabat en râlant après un appel de phares',
+  helico: 'automobiliste qui voit un hélicoptère de gendarmerie au-dessus de l’autoroute',
+  accroche: 'conducteur poli qui vient de se faire accrocher par un camion',
+  accroche_colere: 'conducteur énervé qui vient de se faire emboutir par un camion',
+  choc_grave: 'conducteur sonné après un gros accident (airbag)',
+  moto_blesse: 'motard qui vient de chuter, blessé mais conscient',
+  telephone: 'conducteur accidenté au téléphone (famille, assurance, patron…), commence par 📱',
+  appel_17: 'témoin qui appelle la police à propos du camion, commence par 📱',
+  temoin: 'témoin qui vient de voir le camion provoquer un accident',
+};
+const POOL = {}; let used = new Set(JSON.parse(sessionStorage.getItem('tat_used') || '[]'));
+export function pickLine(cat, fallback) {
+  const p = POOL[cat];
+  while (p?.length) { const l = p.shift(); if (!used.has(l)) { used.add(l); try { sessionStorage.setItem('tat_used', JSON.stringify([...used].slice(-300))); } catch (e) { } return l; } }
+  Brain.wantLines = true;
+  return fallback[Math.floor(Math.random() * fallback.length)];
+}
+export async function refillLines(g) {
+  const need = Object.keys(LINE_CATS).filter(c => (POOL[c]?.length || 0) < 2);
+  if (!need.length) return;
+  const cats = need.slice(0, 7);
+  const ctx = { meteo: g.env?.weather, nuit: (g.env?.night || 0) > 0.5, poursuite: !!(g.released && g.mode !== 'free'), mode: g.mode, coop: !!g.coop };
+  const sys = `Tu écris les répliques courtes des automobilistes d'un jeu de poursuite sur une autoroute française. Varié, crédible, souvent drôle, français parlé (pas d'anglais), jamais vulgaire au-delà de « bon sang », « punaise ». Chaque réplique ≤ 12 mots, toutes différentes, personnalités variées (mamie, jeune, routier, cadre pressé, touriste belge, famille…). Réponds UNIQUEMENT en JSON : {"categorie":["réplique",…]} avec 5 répliques par catégorie demandée.`;
+  const res = await Brain.ask([{ role: 'system', content: sys }, { role: 'user', content: JSON.stringify({ contexte: ctx, categories: Object.fromEntries(cats.map(c => [c, LINE_CATS[c]])) }) }], 900);
+  if (!res) return;
+  for (const c of cats) if (Array.isArray(res[c])) (POOL[c] ||= []).push(...res[c].map(x => String(x).trim()).filter(x => x && x.length < 120 && !used.has(x)).sort(() => Math.random() - 0.5));
+  Brain.linesOk = (Brain.linesOk || 0) + 1;
 }

@@ -183,7 +183,7 @@ export class Vehicle {
   get bodies() { return this.trailer ? [this.body, this.trailer.body] : [this.body]; }
 
   step(dt, env) {
-    const def = this.def, b = this.body, vc = this.vc, inp = this.input;
+    const def = this.def, b = this.body, vc = this.vc, inp = this.riderOff ? { throttle: 0, brake: 0.35, steer: 0, handbrake: false } : this.input;
     const v = b.linvel(), r = b.rotation();
     _q.set(r.x, r.y, r.z, r.w);
     _f.set(0, 0, 1).applyQuaternion(_q); _u.set(0, 1, 0).applyQuaternion(_q); _r.set(-1, 0, 0).applyQuaternion(_q);
@@ -286,7 +286,7 @@ export class Vehicle {
     this.prevPos.copy(this.curPos); this.prevQuat.copy(this.curQuat);
     this.curPos.set(p.x, p.y, p.z); this.curQuat.set(q.x, q.y, q.z, q.w);
     _v.set(v.x, v.y, v.z);
-    const dv = _v.distanceTo(this.lastV);
+    const dv = _v.distanceTo(this.lastV), preV = this.lastV.clone();
     const dvec = _v.clone().sub(this.lastV);
     if (dt > 0) { // accélération ressentie dans la cabine (repère véhicule)
       _f.copy(_v).sub(this.lastV).divideScalar(dt).applyQuaternion(_q.set(q.x, q.y, q.z, q.w).invert());
@@ -309,7 +309,10 @@ export class Vehicle {
       this.damage = Math.min(100, this.damage + (dv - 1.1) * k * this.armor);
       if (dt > 0) this.deform(dvec, dv);
       if (this.damage >= 100 && !this.disabled) { this.disabled = true; this.game.onDisabled?.(this); }
+      // moto : gros choc = chute, le motard est éjecté
+      if (this.def.moto && !this.riderOff && (dv > 5.5 || this.damage >= 100)) this.fallOff(preV);
     }
+    if (this.def.moto && !this.riderOff && this.upright < 0.55 && Math.abs(this.speed) > 3) this.fallOff(this.lastV);
     if (this.trailer) {
       const t = this.trailer, tp = t.body.translation(), tq = t.body.rotation();
       t.prevPos.copy(t.curPos); t.prevQuat.copy(t.curQuat);
@@ -327,7 +330,10 @@ export class Vehicle {
     this.pos.lerpVectors(this.prevPos, this.curPos, alpha);
     this.quat.slerpQuaternions(this.prevQuat, this.curQuat, alpha);
     this.mesh.position.copy(this.pos); this.mesh.quaternion.copy(this.quat);
-    if (this.def.moto) { this.lean = (this.lean || 0) + (-this.steer * clamp(Math.abs(this.speed) / 18) * 1.4 - (this.lean || 0)) * 0.15; this.mesh.rotateZ(this.lean); }
+    if (this.def.moto) {
+      if (this.riderOff) { this.fall = Math.min(1.42, (this.fall || Math.abs(this.lean || 0)) + 0.05 * (1 + (this.fall || 0))); this.mesh.rotateZ(this.fall * (this.fallSide || 1)); this.mesh.position.y -= this.fall * 0.12; }
+      else { this.lean = (this.lean || 0) + (-this.steer * clamp(Math.abs(this.speed) / 18) * 1.4 - (this.lean || 0)) * 0.15; this.mesh.rotateZ(this.lean); }
+    }
     const vc = this.vc;
     this.wheelDefs.forEach((w, i) => {
       const m = this.wheels[i];
@@ -381,7 +387,20 @@ export class Vehicle {
     }
   }
 
+  fallOff(vel) {
+    this.riderOff = true; this.fallSide = this.lean > 0 ? 1 : -1;
+    if (!this.disabled) { this.disabled = true; this.damage = Math.max(this.damage, 100); this.game.onDisabled?.(this); }
+    this.game.ejectRider?.(this.model.group.userData.rider, vel, this.name);
+    if (this === this.game.player) this.game.hud?.big?.('CHUTE !', 'wanted');
+  }
+
   resetOnRoad(s, d, yaw) {
+    if (this.riderOff) { // remise en selle
+      const rd = this.model.group.userData.rider, R = (this.game.riders || []).find(x => x.rider === rd);
+      if (R) { this.game.scene.remove(R.piv); R.dead = true; }
+      rd.position.set(0, 0, 0); rd.quaternion.identity(); rd.userData.ejected = false; this.model.group.add(rd);
+      this.riderOff = false; this.fall = 0; this.disabled = false; this.damage = Math.min(this.damage, 60);
+    }
     const p = this.game.roadPose(s, d);
     const q = new THREE.Quaternion().setFromAxisAngle(UP, yaw ?? p.yaw);
     const set = (body, x, y, z) => { body.setTranslation({ x, y, z }, true); body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true); body.setLinvel({ x: 0, y: 0, z: 0 }, true); body.setAngvel({ x: 0, y: 0, z: 0 }, true); };

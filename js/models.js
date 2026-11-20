@@ -267,20 +267,21 @@ export function buildMoto(o) {
     b.box('body', grey, 0.12, 0.02, 0.04, sx * 0.17, 0.42, -0.12); // repose-pieds
   }
   // motard : assis, penché, mains sur les poignées, pieds sur les repose-pieds
+  const rb = new Builder();
   const J = o.jacket ?? 0x22262e, P = o.pants ?? 0x1c1d22, H = o.helmet ?? 0xf2f2f2;
   const hip = [0, 0.98, -0.3], sh = [0, 1.48, -0.02];
-  seg(b, 'body', J, hip, sh, 0.17);
-  if (o.police) seg(b, 'body', 0xf5d020, [0, hip[1] + 0.2, hip[2] + 0.06], [0, sh[1] - 0.06, sh[2] - 0.02], 0.178);
-  sph(b, 'body', H, 0.15, 0, 1.68, 0.1, 1, 1.05, 1.12);
-  sph(b, 'glass', 0, 0.13, 0, 1.67, 0.17, 0.95, 0.55, 0.8);
+  seg(rb, 'body', J, hip, sh, 0.17);
+  if (o.police) seg(rb, 'body', 0xf5d020, [0, hip[1] + 0.2, hip[2] + 0.06], [0, sh[1] - 0.06, sh[2] - 0.02], 0.178);
+  sph(rb, 'body', H, 0.15, 0, 1.68, 0.1, 1, 1.05, 1.12);
+  sph(rb, 'glass', 0, 0.13, 0, 1.67, 0.17, 0.95, 0.55, 0.8);
   for (const sx of [-1, 1]) {
     const S = [sx * 0.19, sh[1] - 0.04, sh[2]], E = [sx * 0.26, 1.24, 0.18], Hd = [sx * 0.31, 1.09, head[2] - 0.06];
-    seg(b, 'body', J, S, E, 0.06); seg(b, 'body', J, E, Hd, 0.05); sph(b, 'body', 0x111111, 0.05, Hd[0], Hd[1], Hd[2]);
+    seg(rb, 'body', J, S, E, 0.06); seg(rb, 'body', J, E, Hd, 0.05); sph(rb, 'body', 0x111111, 0.05, Hd[0], Hd[1], Hd[2]);
     const Hp = [sx * 0.12, hip[1], hip[2] + 0.04], K = [sx * 0.2, 0.86, 0.14], Ft = [sx * 0.19, 0.44, -0.08];
-    seg(b, 'body', P, Hp, K, 0.08); seg(b, 'body', P, K, Ft, 0.065);
-    b.box('body', 0x0c0c0c, 0.1, 0.1, 0.24, Ft[0], 0.42, Ft[2] + 0.04, { r: 0.03 });
+    seg(rb, 'body', P, Hp, K, 0.08); seg(rb, 'body', P, K, Ft, 0.065);
+    rb.box('body', 0x0c0c0c, 0.1, 0.1, 0.24, Ft[0], 0.42, Ft[2] + 0.04, { r: 0.03 });
   }
-  const g = b.build();
+  const g = b.build(), rider = rb.build(); rider.name = 'rider'; g.add(rider); g.userData.rider = rider;
   const wF = motoWheel(R, [-1, 1]), wR = motoWheel(R, [1]); wF.position.set(...fh); wR.position.set(...rh); g.add(wF, wR);
   g.userData.motoWheels = [wF, wR]; g.userData.R = R;
   return g;
