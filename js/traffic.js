@@ -246,6 +246,7 @@ export class Traffic {
       if (car.feel === 'panic') { v0 *= 0.75; yieldSiren = yieldSiren || { s: car.s - car.dir * 50, d: car.d }; }
       if (car.feel === 'angry') v0 *= 1.15;
       v0 *= 1 + 0.035 * Math.sin(g.time * 0.05 + (car.seed % 97)); // on ne roule jamais pile à la même vitesse
+      { const tc = g.toll?.speedCap(car); if (tc != null) v0 = Math.min(v0, tc); } // gare de péage
       if (car.brain) { car.brain.t -= dt; const a = car.brain.a; if (a === 'ralentir' || a === 'filmer') v0 *= a === 'filmer' ? 0.65 : 0.6; if (a === 'suivre_le_camion' && tk) v0 = Math.max(8, Math.min(v0 * 1.2, tk.speed)); if (car.brain.t <= 0) car.brain = null; }
       if (car.persona === 'distrait' && !car.lc) car.dodge += Math.sin(g.time * 0.8 + car.seed) * 0.004; // léger zigzag (téléphone)
       if (wreckNear) { // curiosité + prudence
