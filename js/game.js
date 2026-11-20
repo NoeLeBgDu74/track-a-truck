@@ -354,6 +354,14 @@ export class Game {
     for (const v of this.vehicles) { if (v.ai) v.headlights = night || this.env.rainAmt > 0.5; v.lightPoints(list); }
     this.traffic.lightPoints(list, night || this.env.rainAmt > 0.6, camPos);
     this.services.lightPoints(list); this.works.lightPoints(list);
+    { // camion du joueur : pschhh du frein à air à l'arrêt, bip de recul
+      const v = this.player;
+      if (v && v.def.team === 'truck' && ['play', 'countdown'].includes(this.state) && !this.person) {
+        if (v.kmh > 8) this.wasMoving = 3; else if (this.wasMoving > 0) this.wasMoving -= dt;
+        if (v.kmh < 0.8 && this.wasMoving > 0) { this.wasMoving = 0; this.audio.airBrake?.(v.curPos); }
+        if (v.reverse && v.speed < -0.3) { this.bkT = (this.bkT || 0) - dt; if (this.bkT <= 0) { this.bkT = 0.85; this.audio.backup?.(v.curPos); } } else this.bkT = 0;
+      }
+    }
     if (this.state !== 'menu') { this.works.step(dt); this.toll.step(dt); this.aires.step(dt); this.events.step(dt); }
     this.talk.step();
     this.glows.set(list, this.env.night > 0.3 || this.env.tunnel > 0.3 ? 1 : 0.55);

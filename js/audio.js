@@ -103,10 +103,11 @@ export class Audio {
     if (!on) { if (s) { s.g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1); } return; }
     const C = this.ctx;
     if (!s) {
-      const o = C.createOscillator(); o.type = 'sawtooth';
-      const lfo = C.createOscillator(); lfo.frequency.value = 0.42; const lg = C.createGain(); lg.gain.value = 380; lfo.connect(lg); lg.connect(o.frequency);
-      o.frequency.value = 960;
-      const f = C.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1100; f.Q.value = 0.7;
+      // sirène « deux-tons » à la française : pin-pon (SAMU/pompiers 435/488 Hz, gendarmerie/police 440/585 Hz)
+      const pin = !!veh.pinpon, o = C.createOscillator(); o.type = 'square';
+      const lfo = C.createOscillator(); lfo.type = 'square'; lfo.frequency.value = pin ? 0.78 : 0.95; const lg = C.createGain(); lg.gain.value = pin ? 26.5 : 72; lfo.connect(lg); lg.connect(o.frequency);
+      o.frequency.value = pin ? 461.5 : 512;
+      const f = C.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = pin ? 950 : 1050; f.Q.value = 0.45;
       const g = C.createGain(); g.gain.value = 0;
       const p = C.createPanner(); p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = 12; p.rolloffFactor = 1.1;
       o.connect(f); f.connect(g); g.connect(p); p.connect(this.bus); o.start(); lfo.start();
@@ -116,7 +117,7 @@ export class Audio {
     if (s.p.positionX) { s.p.positionX.setValueAtTime(pos.x, t); s.p.positionY.setValueAtTime(pos.y + 1.5, t); s.p.positionZ.setValueAtTime(pos.z, t); } else s.p.setPosition(pos.x, pos.y, pos.z);
     s.g.gain.setTargetAtTime(local ? 0.09 : 0.22, t, 0.1);
     // « yelp » rapide quand la voiture est au contact du suspect, « wail » lent sinon
-    const yelp = !!veh.yelp; if (s.yelp !== yelp) { s.yelp = yelp; s.lfo.frequency.setTargetAtTime(yelp ? 3.2 : 0.42, t, 0.2); s.lg.gain.setTargetAtTime(yelp ? 300 : 380, t, 0.2); }
+    const yelp = !!veh.yelp && !veh.pinpon; if (s.yelp !== yelp) { s.yelp = yelp; s.lfo.frequency.setTargetAtTime(yelp ? 2.4 : 0.95, t, 0.2); }
   }
   stopAllSirens() { for (const [k, s] of this.sirens) { s.g.gain.value = 0; try { s.o.stop(); s.lfo.stop(); } catch (e) { } } this.sirens.clear(); }
 
@@ -224,6 +225,9 @@ export class Audio {
     }
     this._rot.gain.setTargetAtTime(g, this.ctx.currentTime, 0.2);
   }
+  // frein à air du poids lourd (pschhh) et bip de recul
+  airBrake(pos) { this.oneShot(pos, (C, dest, t) => { const s = C.createBufferSource(); s.buffer = this.noiseBuf; const f = C.createBiquadFilter(); f.type = 'bandpass'; f.frequency.setValueAtTime(3200, t); f.frequency.exponentialRampToValueAtTime(1400, t + 0.8); f.Q.value = 0.6; const g = C.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.32, t + 0.04); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9); s.connect(f); f.connect(g); g.connect(dest); s.start(t, Math.random()); s.stop(t + 1); }); }
+  backup(pos) { this.oneShot(pos, (C, dest, t) => { const o = C.createOscillator(); o.type = 'sine'; o.frequency.value = 1180; const g = C.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12, t + 0.02); g.gain.setValueAtTime(0.12, t + 0.36); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42); o.connect(g); g.connect(dest); o.start(t); o.stop(t + 0.45); }); }
   hiss() { this.oneShot(null, (C, dest, t) => { const s = C.createBufferSource(); s.buffer = this.noiseBuf; const f = C.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 2500; const g = C.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9); s.connect(f); f.connect(g); g.connect(dest); s.start(t, Math.random()); s.stop(t + 1); }); }
   tick() { this.oneShot(null, (C, dest, t) => { const o = C.createOscillator(); o.type = 'square'; o.frequency.value = 1800; const g = C.createGain(); g.gain.setValueAtTime(0.03, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.03); o.connect(g); g.connect(dest); o.start(t); o.stop(t + 0.04); }); }
   thud(pos) { this.oneShot(pos, (C, dest, t) => { const o = C.createOscillator(); o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(50, t + 0.2); const g = C.createGain(); g.gain.setValueAtTime(0.4, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.25); o.connect(g); g.connect(dest); o.start(t); o.stop(t + 0.3); }); }
