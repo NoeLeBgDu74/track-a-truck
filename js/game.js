@@ -387,6 +387,7 @@ export class Game {
   handleSpeech(idx, text, local) {
     const c = this.coop; if (!c || !text) return;
     const intents = understand(text), me = c.chars[idx], other = c.chars[1 - idx], drv = idx === c.driver;
+    if (local && !intents.length) { const n = this.talk.candidates()[0]; if (n && n.d < 30) { this.talk.heard(text); return; } } // phrase pour un PNJ proche
     this.hud.msg(`🗣️ <b>${me.name}</b> : « ${text} »`, 'speech');
     if (local && this.coopKind === 'online') this.net.send({ t: 'speech', idx, text });
     const anim = (i, type, dur = 2.5) => this.crewAnim[i] = { type, t: 0, dur };
@@ -799,8 +800,8 @@ export class Game {
     if (this.mirror || this.netTraffic || !Brain.enabled()) return;
     this.brainT = (this.brainT ?? 4) - dt;
     this.linesT = (this.linesT ?? 1) - dt;
-    if (this.linesT <= 0 && !Brain.busy) { this.linesT = Brain.wantLines ? 12 : 30; Brain.wantLines = false; refillLines(this); }
-    else if (this.brainT <= 0 && !Brain.busy) { this.brainT = 9; directorTick(this); }
+    if (this.linesT <= 0 && !Brain.busy) { this.linesT = Brain.wantLines ? 20 : 50; Brain.wantLines = false; refillLines(this); }
+    else if (this.brainT <= 0 && !Brain.busy) { this.brainT = 16; directorTick(this); }
     if (this.coop && this.coopKind === 'solo') {
       this.banterT = (this.banterT ?? 40) - dt;
       if (this.banterT <= 0) { this.banterT = 45 + Math.random() * 30; copilotBanter(this).then(r => { if (r?.remarque && this.state === 'play' && this.coop) { this.coopMsg(`${this.coop.cop.name} : « ${String(r.remarque).slice(0, 120)} »`); this.crewAnim[1 - this.coop.driver] = { type: 'laugh', t: 0, dur: 1.5 }; } }); }

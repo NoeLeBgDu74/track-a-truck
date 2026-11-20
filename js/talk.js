@@ -21,37 +21,45 @@ const ACTIONS = {
 
 export class Talk {
   constructor(game) {
-    this.g = game; this.open = false;
+    this.g = game; this.open = false; this.on = true; this.busy = false;
     const css = document.createElement('style'); css.textContent = `
-#talk{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(560px,calc(100vw - 32px));z-index:60;display:none;background:rgba(12,16,24,.92);border:1px solid #33435e;border-radius:14px;padding:8px;box-shadow:0 8px 30px #0008;font:14px system-ui,sans-serif;color:#e8ecf2}
-#talk .who{font-size:12px;color:#ffb347;margin:0 4px 6px}
-#talk .row{display:flex;gap:6px}#talk input{flex:1;background:#0a0e15;color:#fff;border:1px solid #33435e;border-radius:9px;padding:9px 10px;font:15px system-ui}
-#talk button{background:#1d2738;color:#fff;border:1px solid #33435e;border-radius:9px;padding:0 12px;font-size:16px;cursor:pointer}
-#talk-hint{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);z-index:59;background:rgba(12,16,24,.75);color:#fff;padding:5px 12px;border-radius:20px;font:13px system-ui;display:none;pointer-events:auto;cursor:pointer}`;
+#talk-hint{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);z-index:59;background:rgba(12,16,24,.8);color:#fff;padding:6px 14px;border-radius:20px;font:13px system-ui;display:none;pointer-events:auto;cursor:pointer;border:1px solid #33435e}
+#talk-hint.live{border-color:#3fd07a;box-shadow:0 0 0 2px #3fd07a55}#talk-hint.off{opacity:.7}`;
     document.head.appendChild(css);
-    this.el = document.createElement('div'); this.el.id = 'talk';
-    this.el.innerHTML = `<div class="who"></div><div class="row"><input maxlength="160" placeholder="Ce que tu lui dis… (Entrée)"><button data-m title="Parler au micro">🎤</button><button data-x title="Fermer">✕</button></div>`;
-    document.body.appendChild(this.el);
     this.hint = document.createElement('div'); this.hint.id = 'talk-hint'; document.body.appendChild(this.hint);
-    this.hint.onclick = () => this.show();
-    this.inp = this.el.querySelector('input');
-    ['keydown', 'keyup'].forEach(t => this.el.addEventListener(t, e => e.stopPropagation()));
-    this.inp.addEventListener('keydown', e => { if (e.key === 'Enter') this.send(this.inp.value); if (e.key === 'Escape') this.hide(); });
-    this.el.querySelector('[data-x]').onclick = () => this.hide();
-    this.el.querySelector('[data-m]').onclick = () => this.mic();
-    addEventListener('keydown', e => { if (e.code === 'KeyT' && !this.open && this.g.state === 'play' && !/INPUT|TEXTAREA/.test(e.target.tagName)) { e.preventDefault(); this.show(); } });
+    this.hint.onclick = () => this.toggle();
+    addEventListener('keydown', e => { if (e.code === 'KeyT' && this.g.state === 'play' && !/INPUT|TEXTAREA/.test(e.target.tagName)) { e.preventDefault(); this.toggle(); } });
+  }
+  // micro obligatoire : écoute continue pendant la partie (T coupe / relance)
+  toggle() { this.on = !this.on; if (this.on) this.listen(); else { try { this.rec?.stop(); } catch (e) { } } this.g.hud?.toast(this.on ? '🎤 Micro activé : parle aux PNJ autour de toi' : '🎤 Micro coupé'); }
+  coopOwnsMic() { return !!(this.g.coop && this.g.listen?.ok && this.g.listen?.on); }
+  listen() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { this.noMic = true; return; }
+    if (this.rec || this.coopOwnsMic()) return;
+    const r = this.rec = new SR(); r.lang = 'fr-FR'; r.continuous = true; r.interimResults = false;
+    r.onresult = e => { for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) this.heard(e.results[i][0].transcript); };
+    r.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { this.denied = true; this.on = false; } };
+    r.onend = () => { this.rec = null; if (this.on && this.g.state === 'play' && !this.denied) setTimeout(() => this.listen(), 300); };
+    try { r.start(); } catch (e) { this.rec = null; }
+  }
+  heard(text) {
+    text = String(text || '').trim(); if (!text || this.g.state !== 'play') return;
+    const c = this.candidates()[0];
+    if (!c) { this.g.hud?.msg(`🗣️ Toi : « ${text} » <small>(personne à portée)</small>`); return; }
+    this.cur = c; this.send(text);
   }
 
   // qui est à portée de voix ?
   candidates() {
     const g = this.g, me = g.person ? g.person.pos : g.player?.curPos; if (!me) return [];
-    const R = g.person ? 9 : 22, out = [];
+    const R = g.person ? 12 : 40, out = [];
     const add = (kind, pos, obj, extra = {}) => { const d = pos.distanceTo(me); if (d < R) out.push({ kind, pos, obj, d, ...extra }); };
     for (const c of g.traffic?.cars || []) {
       if (c.ped) add('blesse', c.ped.grp.position, c.ped, { car: c, state: c.ped.mode, sev: c.sev });
       else if (c.riderObj && !c.riderObj.dead) add('blesse', c.riderObj.piv.position, c.riderObj, { car: c, state: 'motard au sol' });
       else if (c.wreck || c.v < 3) add('automobiliste', c.mesh.position, c, { car: c, state: c.wreck ? 'accidenté, dans sa voiture' : 'arrêté' });
-      else if (!g.person && c.mesh.position.distanceTo(me) < 10) add('automobiliste', c.mesh.position, c, { car: c, state: 'roule à côté, vitre ouverte' });
+      else if (!g.person) add('automobiliste', c.mesh.position, c, { car: c, state: 'roule près du joueur, vitre ouverte', d0: 1 });
     }
     for (const r of g.riders || []) if (!r.dead && !g.traffic.cars.some(c => c.riderObj === r)) add('blesse', r.piv.position, r, { state: 'motard de la gendarmerie au sol' });
     const P = g.patrol; if (P?.officer && ['talk', 'stop'].includes(P.state)) add('gendarme', P.officer.grp.position, P.officer, { patrol: P });
@@ -63,34 +71,19 @@ export class Talk {
   }
 
   step() {
-    if (this.open || this.g.state !== 'play') { this.hint.style.display = 'none'; return; }
-    const c = this.candidates()[0];
-    if (c && (this.g.person || c.kind.startsWith('gendarme') || c.d < 12)) { this.hint.style.display = 'block'; this.hint.textContent = `💬 T : parler à ${this.label(c)}`; this.target = c; }
-    else { this.hint.style.display = 'none'; this.target = null; }
+    const g = this.g;
+    if (g.state !== 'play') { this.hint.style.display = 'none'; if (this.rec) { try { this.rec.stop(); } catch (e) { } } return; }
+    if (this.on && !this.rec && !this.denied && !this.noMic) this.listen();
+    const c = this.candidates()[0]; this.target = c;
+    this.hint.style.display = 'block';
+    this.hint.className = this.on && !this.denied && !this.noMic ? 'live' : 'off';
+    this.hint.textContent = this.noMic ? '🎤 Micro requis pour parler aux PNJ (Chrome / Edge)' : this.denied ? '🎤 Autorise le micro pour parler aux PNJ' : !this.on ? '🎤 Micro coupé — T pour parler' : this.busy ? `💬 ${this.label(this.busy)} réfléchit…` : c ? `🎤 Parle : ${this.label(c)} t’entend` : '🎤 À l’écoute… (personne à portée)';
   }
   label(c) { return { blesse: 'la victime', automobiliste: 'l’automobiliste', gendarme: 'le gendarme', gendarme_controle: 'le gendarme du contrôle', secouriste: 'le secouriste', ouvrier: 'l’ouvrier' }[c.kind] + ' (' + nameOf(c.obj) + ')'; }
 
-  show() {
-    const c = this.target || this.candidates()[0];
-    if (!c) { this.g.hud?.toast('Personne à qui parler ici (approche-toi, ou F pour descendre du camion)'); return; }
-    this.cur = c; this.open = true; this.el.style.display = 'block';
-    this.el.querySelector('.who').textContent = `Tu parles à ${this.label(c)}`;
-    this.inp.value = ''; setTimeout(() => this.inp.focus(), 20);
-  }
-  hide() { this.open = false; this.el.style.display = 'none'; this.inp.blur(); }
-
-  mic() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { this.g.hud?.toast('Micro non disponible dans ce navigateur (utilise Chrome ou Edge)'); return; }
-    const r = new SR(); r.lang = 'fr-FR'; r.interimResults = false;
-    r.onresult = e => { const t = e.results[0][0].transcript; this.inp.value = t; this.send(t); };
-    r.onerror = () => this.g.hud?.toast('Micro : rien entendu');
-    try { r.start(); this.g.hud?.toast('🎤 Parle…'); } catch (e) { }
-  }
-
   async send(text) {
     text = String(text || '').trim(); if (!text || !this.cur) return;
-    const g = this.g, c = this.cur; this.inp.value = '';
+    const g = this.g, c = this.cur;
     g.hud?.msg(`🗣️ Toi : « ${text} »`);
     const hist = (c.obj._chat ||= []); hist.push({ role: 'user', content: text });
     const pl = g.player, acts = ACTIONS[c.kind];
@@ -101,9 +94,10 @@ export class Talk {
     };
     const sys = `Tu joues UN personnage dans un jeu de camion sur autoroute française : ${this.label(c)}. Reste dans ton rôle, réagis de façon humaine et crédible à ce que dit le joueur (gentillesse, mensonge, insulte, humour, aveu…), avec ta personnalité, en français parlé, 1 à 3 phrases courtes. Tu peux être convaincu, mais pas naïf : un gendarme ne laisse pas filer quelqu'un d'insolent ou de suspect. Réponds UNIQUEMENT en JSON : {"reponse":"…","action":"${acts.join('|')}","emotion":"calme|content|inquiet|enerve|douleur|amuse"}`;
     const msgs = [{ role: 'system', content: sys }, { role: 'user', content: 'Situation : ' + JSON.stringify(sit) }, ...hist.slice(-8)];
-    this.el.querySelector('.who').textContent = `${this.label(c)} réfléchit…`;
-    const r = await Brain.ask(msgs, 400);
-    this.el.querySelector('.who').textContent = `Tu parles à ${this.label(c)}`;
+    this.busy = c;
+    for (let i = 0; i < 80 && Brain.busy; i++) await new Promise(r => setTimeout(r, 100)); // la conversation passe avant le reste
+    const r = await Brain.ask(msgs, 400, true);
+    this.busy = false;
     const rep = r?.reponse ? String(r.reponse).slice(0, 220) : ['Hein ? Pardon, je suis un peu sonné…', 'Euh… oui ?', 'Je vous écoute.'][Math.floor(Math.random() * 3)];
     hist.push({ role: 'assistant', content: JSON.stringify(r || { reponse: rep }) });
     const who = { cur: c.pos, mesh: c.obj.grp || c.obj.piv || c.obj.g || c.obj.mesh || { position: c.pos }, type: { h: c.kind === 'automobiliste' ? (c.car?.type?.h || 1.5) : 0.4 } };

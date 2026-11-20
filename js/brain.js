@@ -13,21 +13,21 @@ const GROQ = 'https://api.groq.com/openai/v1/chat/completions';
 export const Brain = {
   busy: false, fails: 0, relayFails: 0, last: 0, ok: 0, pauseUntil: 0, status: 'en attente',
   enabled() { return settings.aiNpc !== false && performance.now() > this.pauseUntil; },
-  async ask(messages, maxTokens = 500) {
-    if (this.busy || !this.enabled()) return null;
+  async ask(messages, maxTokens = 500, prio) {
+    if (this.busy || (!this.enabled() && !(prio && settings.aiNpc !== false))) return null;
     this.busy = true;
     const key = (settings.groqKey || '').trim();
     const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 20000);
     try {
       const useRelay = !key && !this.relayDown;
       const body = key ? { model: 'openai/gpt-oss-20b', messages, temperature: 0.9, max_tokens: maxTokens, response_format: { type: 'json_object' } }
-        : useRelay ? { model: 'openai/gpt-oss-20b', messages, temperature: 0.9, max_tokens: Math.max(maxTokens, 900), response_format: { type: 'json_object' } }
+        : useRelay ? { model: 'openai/gpt-oss-20b', messages, temperature: 0.9, max_tokens: Math.max(maxTokens, 450), response_format: { type: 'json_object' } }
         : { model: 'default', messages, temperature: 0.9, max_tokens: maxTokens };
       let r;
-      try { r = await fetch(key ? GROQ : useRelay ? RELAY : FREE, { method: 'POST', signal: ctrl.signal, headers: key ? { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key } : useRelay ? { 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json', Authorization: 'Bearer unused' }, body: JSON.stringify(body) }); } catch (e) { if (useRelay && ++this.relayFails >= 3) { this.relayDown = true; this.status = 'relais Groq indisponible, essai du service gratuit'; } throw e; }
-      if (r.status === 429) { this.pauseUntil = performance.now() + 120000; this.status = key ? 'quota Groq atteint, pause 2 min' : 'service gratuit saturé : ajoute une clé Groq'; throw new Error('429'); }
+      try { r = await fetch(key ? GROQ : useRelay ? RELAY : FREE, { method: 'POST', signal: ctrl.signal, headers: key ? { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key } : useRelay ? { 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json', Authorization: 'Bearer unused' }, body: JSON.stringify(body) }); } catch (e) { if (useRelay && ++this.relayFails >= 3) { this.relayDown = true; this.status = 'relais Groq indisponible, essai du service gratuit'; setTimeout(() => { this.relayDown = false; this.relayFails = 0; }, 60000); } throw e; }
+      if (r.status === 429) { this.pauseUntil = performance.now() + (useRelay ? 20000 : 120000); this.status = key ? 'quota Groq atteint, pause 2 min' : useRelay ? 'IA très sollicitée : pause 20 s' : 'service gratuit saturé'; throw new Error('429'); }
       if (r.status === 401 || r.status === 403) { this.pauseUntil = performance.now() + 600000; this.status = key ? 'clé Groq refusée' : 'service gratuit indisponible : ajoute une clé Groq'; throw new Error('auth'); }
-      if (!r.ok) { if (useRelay && ++this.relayFails >= 3) this.relayDown = true; throw new Error('HTTP ' + r.status); }
+      if (!r.ok) { if (useRelay && r.status >= 500 && ++this.relayFails >= 3) { this.relayDown = true; setTimeout(() => { this.relayDown = false; this.relayFails = 0; }, 60000); } throw new Error('HTTP ' + r.status); }
       const j = await r.json();
       const txt = j.choices?.[0]?.message?.content || '';
       const m = txt.match(/\{[\s\S]*\}/);
@@ -154,7 +154,7 @@ export async function refillLines(g) {
   const cats = need.slice(0, 7);
   const ctx = { meteo: g.env?.weather, nuit: (g.env?.night || 0) > 0.5, poursuite: !!(g.released && g.mode !== 'free'), mode: g.mode, coop: !!g.coop };
   const sys = `Tu écris les répliques courtes des automobilistes d'un jeu de poursuite sur une autoroute française. Varié, crédible, souvent drôle, français parlé (pas d'anglais), jamais vulgaire au-delà de « bon sang », « punaise ». Chaque réplique ≤ 12 mots, toutes différentes, personnalités variées (mamie, jeune, routier, cadre pressé, touriste belge, famille…). Réponds UNIQUEMENT en JSON : {"categorie":["réplique",…]} avec 5 répliques par catégorie demandée.`;
-  const res = await Brain.ask([{ role: 'system', content: sys }, { role: 'user', content: JSON.stringify({ contexte: ctx, categories: Object.fromEntries(cats.map(c => [c, LINE_CATS[c]])) }) }], 900);
+  const res = await Brain.ask([{ role: 'system', content: sys }, { role: 'user', content: JSON.stringify({ contexte: ctx, categories: Object.fromEntries(cats.map(c => [c, LINE_CATS[c]])) }) }], 650);
   if (!res) return;
   for (const c of cats) if (Array.isArray(res[c])) (POOL[c] ||= []).push(...res[c].map(x => String(x).trim()).filter(x => x && x.length < 120 && !used.has(x)).sort(() => Math.random() - 0.5));
   Brain.linesOk = (Brain.linesOk || 0) + 1;
