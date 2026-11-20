@@ -223,7 +223,7 @@ export function assignTactics(game, truck) {
   const units = game.police.filter(p => p.ai && p.ai.role === 'chase' && !p.v.disabled);
   if (!truck || !units.length) return;
   units.sort((a, b) => b.v.road.s - a.v.road.s); // la plus avancée d'abord
-  units.forEach((u, i) => { u.ai.tactic = i === 0 ? 'lead' : i === 1 ? 'flank' : 'tail'; });
+  units.forEach((u, i) => { if (u.ai.brainT > 0) { u.ai.brainT -= 1.5; return; } u.ai.tactic = i === 0 ? 'lead' : i === 1 ? 'flank' : 'tail'; });
   if (units[1]) units[1].ai.side = -(units[0].ai.side || 1);
   // près de la destination, l'unité la plus avancée (si devant) va garder la bretelle
   const lead = units[0];

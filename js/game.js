@@ -19,6 +19,8 @@ import { Net, QUICK_CHAT } from './net.js';
 import { Coop, ACTIONS, GAGS } from './coop.js';
 import { Mini } from './minigame.js';
 import { Listener, understand } from './speech.js';
+import { Admin } from './admin.js';
+import { Brain, directorTick, copilotReply, copilotBanter } from './brain.js';
 import { Cinematic, storyShots } from './cine.js';
 import { Showroom } from './showroom.js';
 import { buildPoliceCar, buildPlayerTruck, buildTrailer, makeWheel, buildPerson, buildSeated, initMaterials, MAT } from './models.js';
@@ -40,6 +42,7 @@ export class Game {
     this.world = new World(this.scene, R, this.phys, 1);
     this.env = new Env(renderer, this.scene);
     this.traffic = new Traffic(this);
+    this.admin = new Admin(this);
     this.glows = new Glows(this.scene); this.particles = new Particles(this.scene);
     this.audio = new Audio(); this.input = new Input(); this.camRig = new CameraRig(camera); this.hud = new HUD(); this.net = new Net();
     this.cine = new Cinematic(this);
@@ -105,7 +108,7 @@ export class Game {
     if (this.preview) { this.scene.remove(this.preview); this.preview = null; }
     this.coop = null; this.coopAI = null; this.crew = null; this.crewV = null; this.mirror = false; this.guardSent = false; this.confuseT = 0; this.said = {}; this.score = 0; this.combo = 0;
     this.cine.on && this.cine.finish();
-    this.listen?.stop(); this.crewAnim = [null, null]; this.noHands = 0; this.aiCmd = null;
+    this.listen?.stop(); this.crewAnim = [null, null]; this.noHands = 0; this.aiCmd = null; this.brainT = 4; this.banterT = 40; this.iaSpike = false;
     document.body.classList.remove('coop');
     this.hud.unhook?.();
   }
@@ -134,6 +137,7 @@ export class Game {
     this.heat = (M?.heat || 0) * 20; this.cargo = 100; this.allies = []; this.playerArrived = false; this.nextBlock = 75; this.heliOn = false; this.heliT = 0; this.headStart = this.team === 'truck' ? 15 : 10; this.released = false;
     this.stats = { crashes: 0, topSpeed: 0, dist: 0, start: 0, busts: 0 };
     this.nextReinforce = 55; this.blockDone = !diff.block && !(M?.heat >= 3); this.ended = false; this.radioT = 18; this.tacticT = 0;
+    this.check = null; if (this.checkMesh) { this.scene.remove(this.checkMesh); this.checkMesh = null; }
     this.unitN = 1; this.score = 0; this.combo = 0; this.comboT = 0;
 
     if (cfg.mirror) return this.startMirror(cfg);
@@ -154,8 +158,12 @@ export class Game {
 
     if (cfg.mode === 'chase' || cfg.mode === 'coop') {
       if (this.team === 'truck') {
-        const n = Math.min(2, diff.police);
-        for (let i = 0; i < n; i++) this.addPolice(-760 - i * 22, SHOULDER_D(1), 'idle');
+        // contrôle routier obligatoire : la police attend sur la bande d'arrêt d'urgence, la poursuite démarre au contrôle
+        this.check = { s: 650, state: 'wait', t: 0, said: 0 };
+        this.headStart = 1e9;
+        this.buildCheckpoint(this.check.s);
+        const n = Math.max(2, Math.min(3, diff.police));
+        for (let i = 0; i < n; i++) { const ai = this.addPolice(this.check.s + 14 + i * 16, SHOULDER_D(1) + 0.4, 'idle'); ai.v.siren = false; ai.v.checkLights = true; }
       } else {
         const tid = ['semi', 'flatbed', 'delivery'][Math.floor(r() * 3)];
         const fv = this.addVehicle(tid, 30, laneD(1, 1), { ai: true, name: 'Suspect' });
@@ -252,7 +260,8 @@ export class Game {
   // ---------- boucle ----------
   frame(dt) {
     this.frameN = (this.frameN || 0) + 1;
-    dt = Math.min(dt, 0.1);
+    dt = Math.min(dt, 0.1) * (this.timeScale || 1);
+    this.admin.step(dt);
     this.slowCd = Math.max(0, this.slowCd - dt);
     if (this.slow > 0) { this.slow -= dt; dt *= 0.3; if (this.slow <= 0) document.body.classList.remove('slowmo'); }
     const inp = this.input;
@@ -371,8 +380,18 @@ export class Game {
     this.hud.msg(`🗣️ <b>${me.name}</b> : « ${text} »`, 'speech');
     if (local && this.coopKind === 'online') this.net.send({ t: 'speech', idx, text });
     const anim = (i, type, dur = 2.5) => this.crewAnim[i] = { type, t: 0, dur };
-    const reply = (line) => { if (!c.humans[1 - idx] || this.coopKind === 'local') this.coopMsg(`${other.name} : « ${line} »`); };
+    const reply = (line) => { if ((!c.humans[1 - idx] || this.coopKind === 'local') && !(Brain.enabled() && !this.mirror)) this.coopMsg(`${other.name} : « ${line} »`); };
     const act = (id) => { if (!this.mirror) c.action(id, 'voice'); };
+    const aiOther = !c.humans[1 - idx] || this.coopKind === 'local';
+    if (aiOther && Brain.enabled() && !this.mirror) {
+      copilotReply(this, text, me.name, other.name).then(r => {
+        if (!r || !this.coop) { if (!intents.length) { anim(1 - idx, 'shrug', 1.6); reply('Hein ? J’ai rien compris.'); } return; }
+        if (r.reponse) { this.coopMsg(`${other.name} : « ${String(r.reponse).slice(0, 160)} »`); }
+        if (r.geste && r.geste !== 'aucun') anim(1 - idx, r.geste, 2.5);
+        const a = String(r.action || 'aucune'); if (a !== 'aucune' && !intents.length) { try { c.action(a, 'voice'); } catch (e) { } }
+      });
+      if (!intents.length) return;
+    }
     if (!intents.length) { anim(1 - idx, 'shrug', 1.6); if (Math.random() < 0.35) reply(['Hein ? J’ai rien compris.', 'Quoi ? Répète, y a le moteur.', 'Ouais… ouais… si tu le dis.', 'C’est toi qui vois.'][Math.floor(Math.random() * 4)]); return; }
     const i0 = intents[0];
     for (const it of intents.slice(0, 2)) switch (it) {
@@ -503,7 +522,7 @@ export class Game {
         let seen = false; try { seen = localStorage.getItem('tat_tuto') === '1'; localStorage.setItem('tat_tuto', '1'); } catch (e) { }
         if (!seen && !this.mirror) ['🎮 <b>Z Q S D</b> (ou flèches) pour conduire, <b>Espace</b> frein à main.', '🎥 <b>C</b> change de caméra : essaie la vue <b>cabine</b> !', '🧭 Suis le GPS en bas à droite et la flèche verte de la carte.', '🚔 Sous 14 km/h au contact de la police pendant 3 s = arrestation. Ne t’arrête pas !', '🛣️ Astuce : la <b>sortie 15</b> mène à la D77, un itinéraire bis plus calme.'].forEach((t, i) => setTimeout(() => this.state === 'play' && this.hud.msg(t), 2500 + i * 4500));
         if (this.mode === 'chase' && this.team === 'police') this.hud.msg(`Le suspect a <b>${this.headStart} s</b> d'avance — attendez le feu vert de la centrale.`);
-        if (this.team === 'truck' && (this.mode === 'chase' || this.mode === 'coop')) this.hud.msg(`Vous avez <b>${this.headStart} s</b> d'avance avant le départ de la police. Foncez !`);
+        if (this.team === 'truck' && (this.mode === 'chase' || this.mode === 'coop')) this.hud.msg(this.check ? '🚧 Un <b>contrôle routier</b> t’attend juste après le dépôt. Arrête-toi sur la bande d’arrêt d’urgence… et prie pour qu’ils n’ouvrent pas la remorque.' : `Vous avez <b>${this.headStart} s</b> d'avance avant le départ de la police. Foncez !`);
         this.time = 0;
       }
     }
@@ -524,7 +543,7 @@ export class Game {
     this.tacticT -= dt;
     if (this.tacticT <= 0 && this.released) { this.tacticT = 1.5; assignTactics(this, this.targetTruck()); }
     this.confuseT = Math.max(0, this.confuseT - dt);
-    for (const p of this.police) if (p.ai) { p.ai.target = this.targetTruck(); p.ai.update(dt); }
+    for (const p of this.police) if (p.ai) { if (p.ai.frozen) { p.v.input = { throttle: 0, brake: 1, steer: 0, handbrake: true }; continue; } p.ai.target = this.targetTruck(); p.ai.update(dt); }
     for (const f of this.fugitives) { if (this.state !== 'play') f.v.input = { throttle: 0, brake: 0, steer: 0, handbrake: true }; else f.update(dt); }
     for (const a of this.allies) { if (this.state !== 'play' || a.status !== 'run') { a.v.input = { throttle: 0, brake: a.v.kmh > 2 ? 1 : 0, steer: 0, handbrake: true }; } else a.ai.update(dt); }
 
@@ -562,7 +581,7 @@ export class Game {
     }
     this.bananaStep(dt); this.propsStep(dt); this.heliStep(dt); this.bubblesStep(dt); this.updateBayMark(); this.gadgetsStep(dt);
     if (this.coop && (this.state === 'play')) this.coop.update(dt, pl);
-    if (this.state === 'play') { this.rules(dt); this.nearMiss(dt); }
+    if (this.state === 'play') { this.rules(dt); this.nearMiss(dt); this.brainStep(dt); }
     if (pl) {
       this.stats.topSpeed = Math.max(this.stats.topSpeed, pl.kmh);
       if (this.state === 'play' && pl.road.d < -120 && pl.road.s > VILLAGE.s0 && pl.road.s < VILLAGE.s1) this.unlock('bis');
@@ -761,6 +780,81 @@ export class Game {
     const lane = clamp(Math.round((Math.abs(v.road.d) - 3) / 3.6), 0, 2);
     v.resetOnRoad(v.road.s, laneD(1, lane));
     if (this.mode === 'chase' || this.mode === 'coop') { this.timeLeft -= 5; this.hud.toast('Repositionnement (−5 s)'); }
+  }
+
+  // ---------- IA (modèle de langage) : directeur des PNJ et de la police, copilote bavard ----------
+  brainStep(dt) {
+    if (this.mirror || this.netTraffic || !Brain.enabled()) return;
+    this.brainT = (this.brainT ?? 4) - dt;
+    if (this.brainT <= 0) { this.brainT = 9; directorTick(this); }
+    if (this.coop && this.coopKind === 'solo') {
+      this.banterT = (this.banterT ?? 40) - dt;
+      if (this.banterT <= 0) { this.banterT = 45 + Math.random() * 30; copilotBanter(this).then(r => { if (r?.remarque && this.state === 'play' && this.coop) { this.coopMsg(`${this.coop.cop.name} : « ${String(r.remarque).slice(0, 120)} »`); this.crewAnim[1 - this.coop.driver] = { type: 'laugh', t: 0, dur: 1.5 }; } }); }
+    }
+  }
+
+  // ---------- contrôle routier de départ ----------
+  buildCheckpoint(s) {
+    const g = new THREE.Group(), pose = this.roadPose(s, SHOULDER_D(1) - 1.2);
+    g.position.set(pose.x, 0, pose.z); g.rotation.y = pose.yaw;
+    const M = (c, e) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, emissive: e || 0x000000 });
+    const box = (m, w, h, d, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.castShadow = true; g.add(o); return o; };
+    // gendarme debout, bras levé (s'anime)
+    const off = new THREE.Group(); off.position.set(1.4, 0, 4); off.rotation.y = Math.PI; g.add(off);
+    const uni = M(0x1d2f5a), skin = M(0xe0b090), refl = M(0xd8e030, 0x404000);
+    const ob = (m, w, h, d, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.castShadow = true; off.add(o); return o; };
+    ob(uni, 0.15, 0.85, 0.18, 0.11, 0.43, 0); ob(uni, 0.15, 0.85, 0.18, -0.11, 0.43, 0);
+    ob(refl, 0.46, 0.62, 0.26, 0, 1.18, 0); ob(skin, 0.22, 0.25, 0.22, 0, 1.64, 0); ob(uni, 0.27, 0.08, 0.3, 0, 1.8, 0.02);
+    const arm = new THREE.Group(); arm.position.set(-0.3, 1.45, 0); off.add(arm);
+    const a1 = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.62, 0.11), uni); a1.position.y = 0.28; arm.add(a1);
+    const paddle = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.02, 20), M(0xffffff, 0x502020)); paddle.rotation.x = Math.PI / 2; paddle.position.y = 0.7; arm.add(paddle);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.025, 6, 20), M(0xd01010, 0x600000)); ring.position.y = 0.7; arm.add(ring);
+    ob(uni, 0.11, 0.6, 0.11, 0.3, 1.15, 0);
+    this.checkArm = arm;
+    // panneaux d'approche + cônes en biseau sur la BAU
+    const sign = (z, txt) => {
+      const c = document.createElement('canvas'); c.width = 512; c.height = 256; const x = c.getContext('2d');
+      x.fillStyle = '#f2c200'; x.fillRect(0, 0, 512, 256); x.strokeStyle = '#111'; x.lineWidth = 14; x.strokeRect(8, 8, 496, 240);
+      x.fillStyle = '#111'; x.font = '900 64px Arial'; x.textAlign = 'center'; x.fillText('CONTRÔLE', 256, 100); x.font = '700 40px Arial'; x.fillText(txt, 256, 170); x.font = '700 30px Arial'; x.fillText('GENDARMERIE', 256, 220);
+      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+      const p = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.2), new THREE.MeshStandardMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.25 }));
+      p.position.set(0.6, 1.9, z); p.rotation.y = Math.PI; g.add(p);
+      box(M(0x888888), 0.08, 1.4, 0.08, 0.6, 0.7, z + 0.05);
+    };
+    sign(-260, 'À 250 m'); sign(-120, 'SERREZ À DROITE'); sign(-30, 'ARRÊT OBLIGATOIRE');
+    for (let i = 0; i < 9; i++) { const c = new THREE.Mesh(this.world.coneGeo, this.world.coneMat); c.position.set(-2.4 + i * 0.28, 0, -60 + i * 6); g.add(c); }
+    for (let i = 0; i < 6; i++) { const c = new THREE.Mesh(this.world.coneGeo, this.world.coneMat); c.position.set(-0.3, 0, 8 + i * 9); g.add(c); }
+    this.scene.add(g); this.checkMesh = g;
+  }
+
+  checkStep(dt, truck) {
+    const C = this.check, ds = truck.road.s - C.s, kmh = truck.kmh;
+    if (this.checkArm) this.checkArm.rotation.z = C.state === 'wait' ? 0.25 + Math.sin(this.time * 4) * 0.35 : 0.1;
+    for (const p of this.police) if (p.v.checkLights && !this.released) { p.v.siren = false; p.v.flashA = (this.time * 2.2) % 1 < 0.15; p.v.flashB = false; }
+    const officer = 'Gendarme Morel';
+    if (C.state === 'wait') {
+      if (ds > -420 && !C.said) { C.said = 1; this.radio('Gendarmerie : contrôle routier au PK 0,6. Tous les poids lourds sur la bande d’arrêt d’urgence.', 'pol'); }
+      if (ds > -260 && C.said === 1) { C.said = 2; this.hud.big('CONTRÔLE', 'wanted'); this.hud.msg('🚧 <b>Contrôle obligatoire</b> : arrête-toi à droite près du gendarme (ou force le passage…).'); }
+      if (ds > -30 && ds < 22 && truck.road.d < -8 && kmh < 9) {
+        C.state = 'inspect'; C.t = 0;
+        this.hud.msg(`👮 ${officer} : « Bonjour monsieur. Contrôle de routine : papiers du véhicule et lettre de voiture, s’il vous plaît. »`);
+        Voice.say('Bonjour monsieur. Contrôle de routine. Papiers du véhicule et lettre de voiture, s’il vous plaît.', { pitch: 0.8, rate: 1.05, voice: 1 });
+      } else if (ds > 22) this.checkBreak('Refus d’obtempérer ! Le poids lourd a forcé le contrôle !');
+    } else if (C.state === 'inspect') {
+      C.t += dt;
+      if (kmh > 12 && C.t < 7.5) return this.checkBreak('Il redémarre en plein contrôle ! Il prend la fuite !');
+      if (C.t > 3.2 && C.said < 3) { C.said = 3; this.hud.msg(`👮 ${officer} : « Hmm… “Fromages industriels”, vraiment ? Ouvrez-moi la remorque, on va jeter un œil. »`); Voice.say('Hmm. Fromages industriels, vraiment ? Ouvrez-moi la remorque.', { pitch: 0.8, rate: 1.05, voice: 1 }); }
+      if (C.t > 7.5 && C.said < 4) { C.said = 4; this.checkBreak('C’est illégal, tout ça ! Vous êtes en état d’arrestation ! Toutes les unités !', true); }
+    }
+  }
+
+  checkBreak(line, caught) {
+    const C = this.check; if (!C || C.state === 'done') return;
+    C.state = 'done'; this.headStart = this.time; this.bustGrace = this.time + 6; this.heat = Math.max(this.heat || 0, caught ? 15 : 25);
+    this.hud.msg(`👮 Gendarme Morel : « ${line} »`, 'pol'); Voice.say(line, { pitch: 0.8, rate: 1.2, voice: 1 });
+    this.hud.big('FUYEZ !', 'wanted'); this.audio.beep?.(880, 0.3);
+    for (const p of this.police) p.v.checkLights = false;
+    if (this.coop) this.coopMsg?.(`${this.coop.cop?.name || 'Gégé'} : « Démarre ! DÉMARRE ! »`);
   }
 
   // ---------- succès ----------
@@ -997,6 +1091,7 @@ export class Game {
     if (this.mode === 'free' || this.mode === 'online') { if (this.mode === 'online') this.onlineRules(dt); return; }
     this.timeLeft -= dt;
     const truck = this.targetTruck();
+    if (this.check && truck) this.checkStep(dt, truck);
     if (!this.released && this.time >= this.headStart) {
       this.released = true;
       for (const p of this.police) if (p.ai) { p.ai.role = 'chase'; p.v.siren = true; }
@@ -1045,7 +1140,7 @@ export class Game {
         if (d < 15) close = true;
       }
       const slow = truck.kmh < 14;
-      if (close && slow && this.released) this.bust = Math.min(1, this.bust + dt / 3.2);
+      if (close && slow && this.released && this.time > (this.bustGrace || 0)) this.bust = Math.min(1, this.bust + dt / 3.2);
       else this.bust = Math.max(0, this.bust - dt / 5);
       if (truck.disabled) this.bust = 1;
       if (truck.upright < 0.3 && truck.kmh < 5) this.bust = Math.min(1, this.bust + dt / 2);

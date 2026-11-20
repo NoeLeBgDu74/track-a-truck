@@ -118,13 +118,14 @@ export const TRAFFIC_TYPES = [
   { kind: 'truck', len: 6.2, w: 2.5, h: 3.6, mass: 9000, artic: true, tlen: 13.4, tmass: 20000, v0: [23, 25.5], weight: 12, trucks: true },
   { kind: 'tractor', len: 4.2, w: 2.2, h: 2.9, mass: 4500, v0: [7, 9], weight: 0, trucks: true, local: true },
   { kind: 'bus', len: 12.5, w: 2.55, h: 3.6, mass: 15000, v0: [25, 27.5], weight: 6, trucks: true },
+  { kind: 'moto', len: 2.2, w: 0.8, h: 1.6, mass: 280, v0: [33, 41], weight: 5, trucks: false, moto: true },
 ];
 
 // ---------------- Paramètres persistants ----------------
 const DEF = {
   quality: 'high', shadows: true, density: 'normal', weather: 'clear', time: 'day', volume: 0.8,
   difficulty: 'normal', team: 'truck', vehicle: { truck: 'semi', police: 'sedan' }, paint: {}, sens: 1, invertY: false,
-  playerName: 'Joueur', server: 'ws://localhost:8787', voices: true, voiceCmd: true, slowmo: true, gearbox: 'auto', touch: 'auto',
+  playerName: 'Joueur', server: 'ws://localhost:8787', voices: true, voiceCmd: true, aiNpc: true, groqKey: '', slowmo: true, gearbox: 'auto', touch: 'auto',
 };
 export const settings = (() => {
   let s = {};

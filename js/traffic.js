@@ -240,6 +240,7 @@ export class Traffic {
       }
       if (car.feel === 'panic') { v0 *= 0.75; yieldSiren = yieldSiren || { s: car.s - car.dir * 50, d: car.d }; }
       if (car.feel === 'angry') v0 *= 1.15;
+      if (car.brain) { car.brain.t -= dt; const a = car.brain.a; if (a === 'ralentir' || a === 'filmer') v0 *= a === 'filmer' ? 0.65 : 0.6; if (a === 'suivre_le_camion' && tk) v0 = Math.max(8, Math.min(v0 * 1.2, tk.speed)); if (car.brain.t <= 0) car.brain = null; }
       if (car.persona === 'distrait' && !car.lc) car.dodge += Math.sin(g.time * 0.8 + car.seed) * 0.004; // léger zigzag (téléphone)
       if (wreckNear) { // curiosité + prudence
         if (wreckNear.ah < 90) { v0 = Math.min(v0, 14 + car.mood * 6); if (car.v > 16) car.hazard = 3; }
@@ -362,7 +363,7 @@ export class Traffic {
     if (l > car.wb * 3) car.ra.set(car.fa.x - fx * car.wb, 0, car.fa.z - fz * car.wb); // téléportation / apparition
     const yaw = Math.atan2(car.fa.x - car.ra.x, car.fa.z - car.ra.z);
     car.cur.set((car.fa.x + car.ra.x) / 2, 0, (car.fa.z + car.ra.z) / 2);
-    car.curYaw = yaw;
+    { let dy = yaw - car.curYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); car.yawRate = dt > 0 ? dy / dt : 0; } car.curYaw = yaw;
     car.body?.setNextKinematicTranslation({ x: car.cur.x, y: 0, z: car.cur.z });
     car.body?.setNextKinematicRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) });
     if (car.trailer) {
@@ -466,6 +467,11 @@ export class Traffic {
       car.mesh.position.lerpVectors(car.prev, car.cur, alpha);
       let dy = car.curYaw - car.prevYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
       car.mesh.rotation.set(0, car.prevYaw + dy * alpha, 0);
+      if (car.type.moto) { // inclinaison dans les virages / changements de voie + roues qui tournent
+        const rate = car.yawRate || 0, want = Math.max(-0.45, Math.min(0.45, -Math.atan(rate * car.v / 9.81)));
+        car.lean = (car.lean || 0) + (want - (car.lean || 0)) * 0.12; car.mesh.rotation.z = car.lean;
+        const mw = car.mesh.userData.motoWheels; if (mw) { car.wRot = (car.wRot || 0) + car.v / 0.31 / 60; mw[0].rotation.x = mw[1].rotation.x = car.wRot; }
+      }
       if (car.trailer) {
         const t = car.trailer;
         t.mesh.position.lerpVectors(t.prev, t.cur, alpha);
@@ -476,24 +482,26 @@ export class Traffic {
   }
 
   lightPoints(out, night, camPos) {
-    const blink = (this.game.time * 2) % 1 < 0.5;
+    // positions calculées depuis la matrice du maillage affiché : les feux restent collés à la carrosserie
+    // (interpolation, relief, épaves qui roulent, trafic reçu en ligne)
+    const blink = (this.game.time * 2) % 1 < 0.5, V = this._lv ||= new THREE.Vector3();
+    const P = (m, x, y, z) => V.set(x, y, z).applyMatrix4(m).toArray();
     for (const car of this.cars) {
-      const dx = car.cur.x - camPos.x, dz = car.cur.z - camPos.z;
-      if (dx * dx + dz * dz > 700 * 700) continue;
-      const fy = car.curYaw, sx = Math.cos(fy), sz = -Math.sin(fy), fx = Math.sin(fy), fz = Math.cos(fy);
-      const L = car.len / 2 + 0.05, hw = car.w * 0.36, y = car.type.trucks ? 1.0 : 0.75;
-      const p = car.mesh.position;
-      let rx = p.x - fx * L, rz = p.z - fz * L, rsx = sx, rsz = sz;
-      if (car.trailer && !car.wreck) { const ty = car.trailer.yaw; rx = car.trailer.kp.x - Math.sin(ty) * 12.25; rz = car.trailer.kp.z - Math.cos(ty) * 12.25; rsx = Math.cos(ty); rsz = -Math.sin(ty); }
+      const dx = car.mesh.position.x - camPos.x, dz = car.mesh.position.z - camPos.z;
+      if (dx * dx + dz * dz > 700 * 700 || !car.mesh.visible) continue;
+      car.mesh.updateMatrixWorld();
+      const m = car.mesh.matrixWorld, L = car.len / 2 + 0.05, hw = car.w * 0.36, y = car.type.trucks ? 1.0 : 0.75;
+      let rm = m, rz = -L;
+      if (car.trailer && !car.wreck) { car.trailer.mesh.updateMatrixWorld(); rm = car.trailer.mesh.matrixWorld; rz = -12.25; }
       const flashOn = car.flash > 0 && (this.game.time * 6) % 1 < 0.5;
-      if ((night || flashOn) && !car.wreck) for (const k of [-1, 1]) out.push([[p.x + fx * L + sx * hw * k, y, p.z + fz * L + sz * hw * k], 0xfff2dc, flashOn ? 3 : 1.3]);
-      if (night || car.brake) for (const k of [-1, 1]) out.push([[rx + rsx * hw * k, y, rz + rsz * hw * k], 0xff2020, car.brake ? 1.2 : 0.6]);
-      if (car.lc && !car.hazard && blink) { // clignotant du côté de la voie visée (+X = gauche du véhicule)
-        const toLeft = (laneD(car.dir, car.lc.to) - laneD(car.dir, car.lc.from)) * car.dir < 0 ? 1 : -1, k = toLeft;
-        out.push([[p.x + fx * L + sx * hw * 1.25 * k, y, p.z + fz * L + sz * hw * 1.25 * k], 0xff9a10, 1.0]);
-        out.push([[rx + rsx * hw * 1.25 * k, y + 0.05, rz + rsz * hw * 1.25 * k], 0xff9a10, 1.0]);
+      if ((night || flashOn) && !car.wreck) for (const k of [-1, 1]) out.push([P(m, hw * k, y, L), 0xfff2dc, flashOn ? 3 : 1.3]);
+      if ((night || car.brake) && !car.wreck) for (const k of [-1, 1]) out.push([P(rm, hw * k, y, rz), 0xff2020, car.brake ? 1.2 : 0.6]);
+      if (car.lc && !car.hazard && blink) { // +X local = gauche du véhicule ; voie d'indice supérieur = à droite
+        const k = car.lc.to > car.lc.from ? -1 : 1;
+        out.push([P(m, hw * 1.25 * k, y, L), 0xff9a10, 1.0]);
+        out.push([P(rm, hw * 1.25 * k, y + 0.05, rz), 0xff9a10, 1.0]);
       }
-      if (car.hazard > 0 && blink) for (const k of [-1, 1]) { out.push([[rx + rsx * hw * 1.2 * k, y + 0.1, rz + rsz * hw * 1.2 * k], 0xff9a10, 1.2]); out.push([[p.x + fx * L + sx * hw * 1.2 * k, y, p.z + fz * L + sz * hw * 1.2 * k], 0xff9a10, 1.0]); }
+      if (car.hazard > 0 && blink) for (const k of [-1, 1]) { out.push([P(rm, hw * 1.2 * k, y + 0.1, rz), 0xff9a10, 1.2]); out.push([P(m, hw * 1.2 * k, y, L), 0xff9a10, 1.0]); }
     }
   }
 

@@ -97,7 +97,7 @@ export class Vehicle {
       this.mesh.add(piv); this.wipers.push(inner);
     }
     this.wipeT = 0; this.wiping = false;
-    if (def.moto) { sw.visible = false; this.wipers.forEach(w => w.parent.visible = false); }
+    if (def.moto) { sw.visible = false; this.wipers.forEach(w => w.parent.visible = false); this.wheels.forEach(w => w.visible = false); this.motoWheels = model.group.userData.motoWheels; }
 
     // remorque
     if (def.trailer) this.makeTrailer(x, z, yaw);
@@ -108,7 +108,7 @@ export class Vehicle {
     this.pMul = 1 + up('engine') * 0.12; this.gMul = 1 + up('tires') * 0.08; this.armor = 1 - up('armor') * 0.18; this.tankLvl = up('tank');
     this.manual = !opts.ai && settings.gearbox === 'manual'; this.mGear = 1;
     this.blink = 0; this.blinkT = 0; this.hornStuck = 0; this.flat = 0;
-    if (opts.interior) this.addInterior();
+    if (opts.interior && !def.moto) this.addInterior();
   }
 
   // carrosserie froissée au point d'impact (opposé au changement de vitesse), vitres fêlées
@@ -339,6 +339,7 @@ export class Vehicle {
       m.scale.set(1, this.flat ? 0.86 : 1, this.flat ? 0.86 : 1); if (this.flat) m.position.y -= this.def.wheelR * 0.12;
     });
     this.steeringWheel.rotation.z = -this.steer * 6;
+    if (this.motoWheels) { const r = this.wheelDefs[2]?.rot || 0; this.motoWheels[1].rotation.x = r; this.motoWheels[0].rotation.set(this.handbrake ? this.motoWheels[0].rotation.x : r, this.steer * 0.6, 0, 'YXZ'); }
     if (this.trailer) {
       const t = this.trailer;
       t.pos.lerpVectors(t.prevPos, t.curPos, alpha); t.quat.slerpQuaternions(t.prevQuat, t.curQuat, alpha);

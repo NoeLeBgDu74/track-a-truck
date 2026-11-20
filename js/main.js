@@ -183,6 +183,9 @@ function ui(game) {
     $('o-sens').value = settings.sens; $('o-sens').oninput = e => { settings.sens = +e.target.value; saveSettings(); };
     $('o-inv').checked = settings.invertY; $('o-inv').onchange = e => { settings.invertY = e.target.checked; saveSettings(); };
     $('o-voices').checked = settings.voices; $('o-voices').onchange = e => { settings.voices = e.target.checked; saveSettings(); };
+    $('o-ainpc').checked = settings.aiNpc !== false; $('o-ainpc').onchange = e => { settings.aiNpc = e.target.checked; saveSettings(); };
+    $('o-groq').value = settings.groqKey || ''; $('o-groq').onchange = e => { settings.groqKey = e.target.value.trim(); saveSettings(); import('./brain.js').then(m => { m.Brain.pauseUntil = 0; m.Brain.fails = 0; }); };
+    import('./brain.js').then(m => { $('o-aistat').textContent = 'État : ' + m.Brain.status; });
     $('o-vcmd').checked = settings.voiceCmd; $('o-vcmd').onchange = e => { settings.voiceCmd = e.target.checked; saveSettings(); };
     $('o-slowmo').checked = settings.slowmo; $('o-slowmo').onchange = e => { settings.slowmo = e.target.checked; saveSettings(); };
     seg('o-gear', 'gearbox', [['auto', 'Automatique'], ['manual', 'Manuelle (Maj/Ctrl)']], renderSettings);

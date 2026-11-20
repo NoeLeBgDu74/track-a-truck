@@ -115,8 +115,9 @@ export class Interior {
     K.box(m.rubber, W * 2, 0.04, 0.04, 0, B + 0.06, front - 0.02, 0, 0, 0);
     // colonne + volant
     // volant face au conducteur, sous le combiné (on lit les compteurs au-dessus de la jante)
-    const wheelY = eyeY - (this.truck ? 0.47 : 0.36), wheelZ = cab.z + (this.truck ? 0.5 : 0.47), tilt = this.truck ? -0.72 : -0.32;
-    const colDir = new THREE.Vector3(0, -Math.sin(-tilt) * 0 - 0.55, 0.83).normalize(), colL = this.truck ? 0.55 : 0.4;
+    const wheelY = eyeY - (this.truck ? 0.47 : 0.36), wheelZ = cab.z + (this.truck ? 0.5 : 0.47), tilt = this.truck ? 0.9 : 0.36;
+    // haut de la jante incliné vers le tableau de bord, colonne dans l'axe exact du volant (vers l'avant et le bas)
+    const colDir = new THREE.Vector3(0, -Math.sin(tilt), Math.cos(tilt)), colL = this.truck ? 0.55 : 0.4;
     K.cyl(m.leather, 0.045, 0.06, colL, dx, wheelY + colDir.y * colL / 2, wheelZ + colDir.z * colL / 2, Math.atan2(colDir.z, colDir.y), 0, 0);
     K.box(m.leather, 0.16, 0.12, 0.14, dx, wheelY + colDir.y * colL * 0.9, wheelZ + colDir.z * colL * 0.9, 0, 0, 0, 0.03); // carénage de colonne
     for (const sx2 of [-1, 1]) K.box(m.leather, 0.12, 0.02, 0.02, dx + sx2 * 0.1, wheelY + colDir.y * 0.12, wheelZ + colDir.z * 0.12 + 0.02, 0, 0, sx2 * 0.2); // commodos
@@ -206,7 +207,9 @@ export class Interior {
     const spin = new THREE.Group(); this.wheel.add(spin); this.wheelSpin = spin;
     const R = this.truck ? 0.25 : 0.19;
     spin.add(new THREE.Mesh(new THREE.TorusGeometry(R, 0.028, 10, 36), m.leather));
-    for (const a of [Math.PI / 2, Math.PI * 7 / 6, Math.PI * 11 / 6]) { const sp = new THREE.Mesh(new THREE.BoxGeometry(0.035, R, 0.02), m.alu); sp.position.set(Math.cos(a) * R / 2, Math.sin(a) * R / 2, 0); sp.rotation.z = a - Math.PI / 2; spin.add(sp); }
+    // vrai volant : branches gauche / droite / bas (asymétrique, on voit qu'il tourne) + repère de point milieu en haut
+    { const mk = new THREE.Mesh(new THREE.TorusGeometry(R, 0.031, 8, 8, 0.22), new THREE.MeshStandardMaterial({ color: 0xd8342a, roughness: 0.6 })); mk.rotation.z = Math.PI / 2 - 0.11; spin.add(mk); }
+    for (const a of [0, Math.PI, Math.PI * 3 / 2]) { const sp = new THREE.Mesh(new THREE.BoxGeometry(0.035, R, 0.02), m.alu); sp.position.set(Math.cos(a) * R / 2, Math.sin(a) * R / 2, 0); sp.rotation.z = a - Math.PI / 2; spin.add(sp); }
     const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 0.05, 20), m.leather); hub.rotation.x = Math.PI / 2; spin.add(hub);
     const logo = new THREE.Mesh(new THREE.CircleGeometry(0.045, 20), new THREE.MeshStandardMaterial({ map: canvasTex(64, 64, (g) => { g.fillStyle = '#222'; g.fillRect(0, 0, 64, 64); g.fillStyle = '#ddd'; g.font = '700 26px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(this.truck ? 'TT' : '★', 32, 34); }), metalness: 0.6, roughness: 0.3 }));
     logo.position.z = -0.03; logo.rotation.y = Math.PI; spin.add(logo);
@@ -319,7 +322,7 @@ export class Interior {
 
   update(dt, game, active) {
     const v = this.v, a = v.accL || this.acc;
-    this.wheelSpin.rotation.z = -v.steer * (this.truck ? 5.5 : 7);
+    this.wheelSpin.rotation.z = -(v.steer / (v.def.steer || 0.55)) * (this.truck ? 3.4 : 2.6); // ~±150-180° en butée, lisible et sans effet stroboscopique
     if (!active) return;
     this.t += dt;
     const acc = { x: a.x, z: a.z };

@@ -200,33 +200,101 @@ export function buildPoliceCar(def, paintColor, opts = {}) {
   return { group: g, lights: { red, blue, L1, L2 }, roofH };
 }
 
-// ---------- moto de police (avec motard) ----------
-export function buildPoliceMoto(def) {
-  const b = new Builder(), wht = 0xf2f2f2, blu = 0x173c8c, blk = 0x161618;
-  b.box('body', blk, 0.18, 0.18, 1.3, 0, 0.5, 0);                                   // cadre
-  b.box('paint', wht, 0.34, 0.24, 0.5, 0, 0.82, 0.28, { r: 0.08 });                 // réservoir
-  b.box('paint', wht, 0.5, 0.42, 0.42, 0, 0.82, 0.62, { r: 0.1 });                  // carénage
-  b.box('paint', blu, 0.52, 0.08, 0.44, 0, 0.72, 0.62);
-  b.wedge('glass', 0, 0.42, 0.34, 0.12, 0, 1.18, 0.74, 0.1);                         // bulle
-  b.box('body', 0x2a2b2e, 0.3, 0.1, 0.55, 0, 0.86, -0.25, { r: 0.04 });             // selle
-  for (const sx of [-1, 1]) b.box('paint', wht, 0.16, 0.36, 0.5, sx * 0.3, 0.6, -0.52, { r: 0.05 }); // valises
-  b.box('body', blk, 0.62, 0.03, 0.03, 0, 1.05, 0.5);                                // guidon
-  b.box('head', 0, 0.16, 0.1, 0.03, 0, 0.82, 0.84);
-  b.box('tail', 0, 0.16, 0.06, 0.03, 0, 0.72, -0.82);
-  b.cyl('chrome', 0xc0c4c8, 0.04, 0.05, 0.6, 0.14, 0.42, -0.5, { rx: Math.PI / 2, seg: 8 }); // échappement
-  // motard
-  b.box('body', 0x1d2f5a, 0.4, 0.55, 0.26, 0, 1.25, -0.12, { r: 0.08, rx: 0.35 });
-  b.box('body', 0xf5d020, 0.42, 0.06, 0.28, 0, 1.28, -0.11, { rx: 0.35 });
-  b.box('body', 0xf2f2f2, 0.27, 0.28, 0.3, 0, 1.66, 0.02, { r: 0.12 });             // casque
-  b.box('glass', 0, 0.22, 0.09, 0.04, 0, 1.66, 0.17);
-  for (const sx of [-1, 1]) { b.box('body', 0x1d2f5a, 0.1, 0.45, 0.1, sx * 0.22, 1.18, 0.22, { rx: -0.9 }); b.box('body', 0x2a2a30, 0.13, 0.5, 0.14, sx * 0.17, 0.75, -0.02, { rx: -0.6 }); }
+// ---------- motos (police + trafic) : vrai deux-roues + motard assis ----------
+const _sq = new THREE.Quaternion(), _sy = new THREE.Vector3(0, 1, 0), _sd = new THREE.Vector3();
+// segment (tube ou membre) entre deux points
+function seg(b, kind, color, p1, p2, t, round) {
+  _sd.set(p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]); const L = _sd.length(); _sd.normalize();
+  const g = round ? new THREE.CylinderGeometry(t, t * 0.9, L, 10) : new RoundedBoxGeometry(t * 2, L, t * 2, 2, t * 0.6);
+  g.applyQuaternion(_sq.setFromUnitVectors(_sy, _sd));
+  g.translate((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2);
+  return b.add(kind, g, color);
+}
+function sph(b, kind, color, r, x, y, z, sx = 1, sy = 1, sz = 1) { const g = new THREE.SphereGeometry(r, 16, 12); g.scale(sx, sy, sz); g.translate(x, y, z); return b.add(kind, g, color); }
+const motoWheelMats = {};
+function motoWheel(R, disc) {
+  motoWheelMats.rim ||= new THREE.MeshStandardMaterial({ color: 0x2a2c30, roughness: 0.35, metalness: 0.8 });
+  motoWheelMats.disc ||= new THREE.MeshStandardMaterial({ color: 0xb8bcc2, roughness: 0.3, metalness: 1 });
+  const g = new THREE.Group();
+  const tire = new THREE.Mesh(new THREE.TorusGeometry(R - 0.055, 0.06, 10, 28), MAT.tire); tire.rotation.y = Math.PI / 2; tire.scale.z = 1.25; tire.castShadow = true; g.add(tire);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(R - 0.1, 0.014, 6, 28), motoWheelMats.rim); rim.rotation.y = Math.PI / 2; g.add(rim);
+  for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2, sp = new THREE.Mesh(new THREE.BoxGeometry(0.03, R - 0.12, 0.022), motoWheelMats.rim); sp.position.set(0, Math.cos(a) * (R - 0.1) / 2, Math.sin(a) * (R - 0.1) / 2); sp.rotation.x = a; g.add(sp); }
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.14, 12), motoWheelMats.disc); hub.rotation.z = Math.PI / 2; g.add(hub);
+  if (disc) for (const sx of disc) { const d = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.55, R * 0.55, 0.012, 24), motoWheelMats.disc); d.rotation.z = Math.PI / 2; d.position.x = sx * 0.07; g.add(d); }
+  return g;
+}
+// o : { police, paint, accent, jacket, pants, helmet, R, wb }
+export function buildMoto(o) {
+  const b = new Builder(), R = o.R || 0.32, F = (o.wb || 1.48) / 2, blk = 0x161618, grey = 0x3b3d42, paint = o.paint, acc = o.accent ?? paint;
+  const fh = [0, R, F], head = [0, 1.0, F - 0.26], piv = [0, 0.52, -0.18], rh = [0, R, -F];
+  // fourche télescopique inclinée + tés + garde-boue
+  for (const sx of [-1, 1]) { seg(b, 'chrome', 0xc8ccd2, [sx * 0.085, fh[1] + 0.02, fh[2]], [sx * 0.085, fh[1] + 0.34, fh[2] - 0.12], 0.026, true); seg(b, 'body', blk, [sx * 0.085, fh[1] + 0.34, fh[2] - 0.12], [sx * 0.085, head[1] + 0.05, head[2]], 0.03, true); }
+  b.box('body', grey, 0.24, 0.05, 0.1, 0, head[1] + 0.04, head[2], { r: 0.02 });
+  b.box('paint', acc, 0.15, 0.04, 0.5, 0, R + 0.1, F - 0.02, { r: 0.015, rx: 0.15 });
+  // cadre, bras oscillant, amortisseur
+  for (const sx of [-1, 1]) { seg(b, 'body', grey, [sx * 0.1, head[1] - 0.05, head[2] - 0.04], [sx * 0.14, piv[1] + 0.05, piv[2]], 0.035); seg(b, 'body', grey, [sx * 0.13, piv[1], piv[2]], [sx * 0.11, rh[1], rh[2]], 0.03); }
+  seg(b, 'chrome', 0xd0a020, [0, piv[1] + 0.1, piv[2] - 0.08], [0, piv[1] + 0.38, piv[2] - 0.22], 0.025, true);
+  // moteur + radiateur + échappement
+  b.box('body', 0x2a2b2f, 0.3, 0.3, 0.42, 0, 0.42, 0.06, { r: 0.05 });
+  for (const sx of [-1, 1]) b.box('chrome', 0x8a8e95, 0.11, 0.24, 0.16, sx * 0.08, 0.66, 0.2, { r: 0.03, rx: -0.35 });
+  b.box('body', 0x111214, 0.34, 0.3, 0.05, 0, 0.62, 0.38, { r: 0.02, rx: -0.2 });
+  seg(b, 'chrome', 0xc0c4c8, [0.08, 0.48, 0.28], [0.12, 0.26, 0.02], 0.03, true);
+  seg(b, 'chrome', 0xc0c4c8, [0.12, 0.26, 0.02], [0.18, 0.4, -0.5], 0.03, true);
+  seg(b, 'chrome', 0x9a9ea4, [0.19, 0.42, -0.5], [0.22, 0.58, -0.85], 0.06, true);
+  // réservoir, selle, coque arrière, feux, plaque
+  sph(b, 'paint', paint, 0.24, 0, 0.92, 0.12, 0.78, 0.6, 1.25);
+  b.box('paint', acc, 0.3, 0.05, 0.3, 0, 1.03, 0.08, { r: 0.02, rx: -0.1 });
+  b.box('body', 0x1c1c1e, 0.28, 0.09, 0.62, 0, 0.88, -0.36, { r: 0.04, rx: 0.06 });
+  b.wedge('paint', paint, 0.24, 0.16, 0.42, 0, 0.84, -0.72, -0.12);
+  b.box('tail', 0, 0.16, 0.05, 0.03, 0, 0.88, -0.94);
+  b.box('body', 0xf0f0f0, 0.18, 0.1, 0.01, 0, 0.62, -0.97, { rx: 0.3 });
+  seg(b, 'body', blk, [0, 0.8, -0.85], [0, 0.6, -0.96], 0.02);
+  for (const sx of [-1, 1]) b.box('orange', 0, 0.05, 0.04, 0.06, sx * 0.13, 0.8, -0.9);
+  // phare rond, guidon, rétros, clignos
+  const hl = new THREE.CylinderGeometry(0.085, 0.085, 0.06, 18); hl.rotateX(Math.PI / 2); hl.translate(0, 0.94, F - 0.14); b.add('head', hl, 0xffffff);
+  if (o.police) {
+    b.wedge('paint', paint, 0.52, 0.42, 0.42, 0, 0.92, F - 0.22, 0.18);
+    b.box('paint', acc, 0.54, 0.07, 0.38, 0, 0.82, F - 0.24);
+    b.wedge('glass', 0, 0.44, 0.36, 0.06, 0, 1.28, F - 0.33, 0.14);
+    for (const sx of [-1, 1]) b.box('paint', paint, 0.2, 0.34, 0.48, sx * 0.29, 0.62, -0.58, { r: 0.05 }); // valises
+  } else b.cyl('body', blk, 0.1, 0.07, 0.12, 0, 0.94, F - 0.2, { rx: Math.PI / 2, seg: 14 });
+  seg(b, 'body', blk, [-0.34, 1.08, head[2] - 0.06], [0.34, 1.08, head[2] - 0.06], 0.016, true);
+  for (const sx of [-1, 1]) {
+    seg(b, 'body', 0x2a2a2a, [sx * 0.3, 1.08, head[2] - 0.06], [sx * 0.37, 1.08, head[2] - 0.06], 0.022, true);
+    seg(b, 'body', blk, [sx * 0.24, 1.08, head[2] - 0.04], [sx * 0.3, 1.26, head[2]], 0.008, true);
+    b.box('body', blk, 0.1, 0.06, 0.02, sx * 0.31, 1.27, head[2] + 0.01, { r: 0.008 });
+    b.box('orange', 0, 0.04, 0.03, 0.05, sx * 0.14, 0.9, F - 0.12);
+    b.box('body', grey, 0.12, 0.02, 0.04, sx * 0.17, 0.42, -0.12); // repose-pieds
+  }
+  // motard : assis, penché, mains sur les poignées, pieds sur les repose-pieds
+  const J = o.jacket ?? 0x22262e, P = o.pants ?? 0x1c1d22, H = o.helmet ?? 0xf2f2f2;
+  const hip = [0, 0.98, -0.3], sh = [0, 1.48, -0.02];
+  seg(b, 'body', J, hip, sh, 0.17);
+  if (o.police) seg(b, 'body', 0xf5d020, [0, hip[1] + 0.2, hip[2] + 0.06], [0, sh[1] - 0.06, sh[2] - 0.02], 0.178);
+  sph(b, 'body', H, 0.15, 0, 1.68, 0.1, 1, 1.05, 1.12);
+  sph(b, 'glass', 0, 0.13, 0, 1.67, 0.17, 0.95, 0.55, 0.8);
+  for (const sx of [-1, 1]) {
+    const S = [sx * 0.19, sh[1] - 0.04, sh[2]], E = [sx * 0.26, 1.24, 0.18], Hd = [sx * 0.31, 1.09, head[2] - 0.06];
+    seg(b, 'body', J, S, E, 0.06); seg(b, 'body', J, E, Hd, 0.05); sph(b, 'body', 0x111111, 0.05, Hd[0], Hd[1], Hd[2]);
+    const Hp = [sx * 0.12, hip[1], hip[2] + 0.04], K = [sx * 0.2, 0.86, 0.14], Ft = [sx * 0.19, 0.44, -0.08];
+    seg(b, 'body', P, Hp, K, 0.08); seg(b, 'body', P, K, Ft, 0.065);
+    b.box('body', 0x0c0c0c, 0.1, 0.1, 0.24, Ft[0], 0.42, Ft[2] + 0.04, { r: 0.03 });
+  }
   const g = b.build();
+  const wF = motoWheel(R, [-1, 1]), wR = motoWheel(R, [1]); wF.position.set(...fh); wR.position.set(...rh); g.add(wF, wR);
+  g.userData.motoWheels = [wF, wR]; g.userData.R = R;
+  return g;
+}
+
+export function buildPoliceMoto(def) {
+  const g = buildMoto({ police: true, paint: 0xf2f2f2, accent: 0x173c8c, jacket: 0x1d2f5a, pants: 0x1d2f5a, helmet: 0xf2f2f2, R: def.wheelR, wb: 1.48 });
   const red = new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff1020, emissiveIntensity: 0.2 });
   const blue = new THREE.MeshStandardMaterial({ color: 0x000a40, emissive: 0x1050ff, emissiveIntensity: 0.2 });
-  const L1 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.06), blue); L1.position.set(0.18, 1.0, 0.86);
-  const L2 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.06), red); L2.position.set(-0.18, 1.0, 0.86);
-  const L3 = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.3, 0.06), blue); L3.position.set(0.24, 1.2, -0.7);
-  const L4 = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.3, 0.06), red); L4.position.set(-0.24, 1.2, -0.7);
+  const L1 = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.05), blue); L1.position.set(0.17, 1.02, 0.62);
+  const L2 = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.05), red); L2.position.set(-0.17, 1.02, 0.62);
+  const L3 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.24, 0.05), blue); L3.position.set(0.26, 1.05, -0.8);
+  const L4 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.24, 0.05), red); L4.position.set(-0.26, 1.05, -0.8);
+  for (const L of [L3, L4]) { const st = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.3, 6), MAT.interior); st.position.y = -0.2; L.add(st); }
   g.add(L1, L2, L3, L4);
   return { group: g, lights: { red, blue, L1, L2 }, roofH: 1.05 };
 }
@@ -386,6 +454,11 @@ export function buildTraffic(type, r) {
   const { len, w } = type;
   const L = len / 2;
   const wheel = (x, z, rad, wd = 0.25) => { b.cyl('body', 0x141414, rad, rad, wd, x, rad, z, { rz: Math.PI / 2, seg: 12 }); b.cyl('chrome', 0x9a9da2, rad * 0.6, rad * 0.6, wd + 0.02, x, rad, z, { rz: Math.PI / 2, seg: 10 }); };
+  if (type.kind === 'moto') {
+    const cols = [0xc81e1e, 0x1d1d20, 0xf0f0f0, 0x1f5fa8, 0xf0b400, 0x2b8a3a, 0xe05a10];
+    const jk = [0x22262e, 0x3a2a1e, 0x1d1d20, 0x5a1a1a, 0x2a3a5a][Math.floor(r() * 5)];
+    return buildMoto({ paint: cols[Math.floor(r() * cols.length)], jacket: jk, helmet: [0x111111, 0xf2f2f2, 0xc81e1e, 0x1f5fa8, 0xf0b400][Math.floor(r() * 5)], R: 0.31, wb: 1.45 });
+  }
   if (type.kind === 'car' || type.kind === 'hatch') {
     const hatch = type.kind === 'hatch';
     carBody(b, { len, w, paint, belt: 0.9, roof: hatch ? 1.48 : 1.42, gRear: hatch ? -L + 0.3 : undefined, roofFrac: hatch ? 0.8 : 0.6, wagon: hatch });
