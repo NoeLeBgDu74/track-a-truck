@@ -79,6 +79,7 @@ export class Traffic {
   }
 
   remove(car) {
+    if (car.ped) { this.game.scene.remove(car.ped.grp); car.ped = null; }
     if (car.body) this.game.phys.removeRigidBody(car.body);
     if (car.trailer?.body) this.game.phys.removeRigidBody(car.trailer.body);
     this.game.scene.remove(car.mesh);
@@ -392,6 +393,94 @@ export class Traffic {
       car.trailer.kp.copy(car.trailer.cur);
     }
     car.wreckT += dt; car.hazard = 1;
+    this.reactStep(car, dt);
+  }
+
+  // ----- crash réaliste : tôle froissée côté choc, débris, verre, airbag, fumée, puis le conducteur réagit -----
+  crashFx(car, hit) {
+    const g = this.game, rel = hit.rel || 0, sev = rel > 15 ? 2 : rel > 7 ? 1 : 0;
+    car.sev = Math.max(car.sev ?? -1, sev); car.react = car.react || { t: 0, stage: 0 };
+    // direction du choc dans le repère du véhicule (l'autre arrive selon -rel)
+    const c = Math.cos(-car.curYaw), s = Math.sin(-car.curYaw);
+    let lx = -(hit.rvx * c + hit.rvz * s), lz = -(-hit.rvx * s + hit.rvz * c); const ll = Math.hypot(lx, lz) || 1; lx /= ll; lz /= ll;
+    const hx = Math.abs(lx) > Math.abs(lz) ? Math.sign(lx) * car.w / 2 : lx * car.w / 2, hz = Math.abs(lz) >= Math.abs(lx) ? Math.sign(lz) * car.len / 2 : lz * car.len / 2;
+    const amt = Math.min(0.45, 0.06 + rel * 0.018), rad = Math.min(1.8, 0.7 + rel * 0.05);
+    car.mesh.traverse(o => {
+      if (!o.isMesh || !o.geometry?.attributes?.position || o.parent?.userData?.motoWheels) return;
+      if (!['paint', 'body', 'head', 'tail', 'glass', 'orange'].includes(o.name)) return;
+      const P = o.geometry.attributes.position; let ch = false;
+      for (let i = 0; i < P.count; i++) {
+        const x = P.getX(i), y = P.getY(i), z = P.getZ(i), d = Math.hypot(x - hx, z - hz);
+        if (d > rad || y < 0.15) continue;
+        const k = (1 - d / rad) ** 1.5 * amt;
+        P.setXYZ(i, x - lx * k, y - k * 0.25 + (Math.random() - 0.5) * k * 0.3, z - lz * k); ch = true;
+      }
+      if (ch) { P.needsUpdate = true; o.geometry.computeVertexNormals(); }
+    });
+    // débris, éclats de verre, étincelles
+    const wx = car.cur.x + (hx * Math.cos(car.curYaw) + hz * Math.sin(car.curYaw)), wz = car.cur.z + (-hx * Math.sin(car.curYaw) + hz * Math.cos(car.curYaw));
+    const n = 6 + Math.min(20, rel * 1.2);
+    for (let i = 0; i < n; i++) {
+      const glass = i % 3 === 0;
+      g.particles?.emit(wx, 0.7 + Math.random() * 0.6, wz, (Math.random() - 0.5) * 6 + (hit.rvx || 0) * 0.25, 1 + Math.random() * 3, (Math.random() - 0.5) * 6 + (hit.rvz || 0) * 0.25, 0.8 + Math.random() * 0.6, glass ? 0.06 : 0.1, 0, glass ? 0xbfe4ff : i % 2 ? 0x2a2a2a : 0xffb040, glass ? 0.9 : 0.8);
+    }
+    g.audio?.crash?.({ x: wx, y: 1, z: wz }, Math.min(10, rel * 0.6));
+    if (sev >= 1 && !car.airbag && !car.type.moto && !car.type.trucks) { // airbag
+      const ab = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 10), new THREE.MeshStandardMaterial({ color: 0xf4f4f0, roughness: 0.9 }));
+      ab.position.set(car.w * 0.22, 1.0, car.len * 0.12); ab.scale.set(1, 0.85, 0.6); car.mesh.add(ab); car.airbag = ab;
+    }
+  }
+
+  reactStep(car, dt) {
+    const R = car.react; if (!R) return;
+    const g = this.game; R.t += dt;
+    if (car.sev >= 1 && R.t < 25 && (R.smk = (R.smk || 0) - dt) <= 0) { // capot qui fume
+      R.smk = 0.12; const f = car.len * 0.36, x = car.cur.x + Math.sin(car.curYaw) * f, z = car.cur.z + Math.cos(car.curYaw) * f;
+      g.particles?.emit(x, (car.cur.y || 0) + 1, z, (Math.random() - 0.5) * 0.4, 0.9, (Math.random() - 0.5) * 0.4, 2.2, 0.5, 1.6, car.sev >= 2 ? 0x3a3a3a : 0x9a9a9a, 0.35);
+    }
+    if (car.airbag && R.t > 6) { car.airbag.scale.multiplyScalar(0.97); if (car.airbag.scale.x < 0.3) { car.mesh.remove(car.airbag); car.airbag = null; } }
+    const still = car.v < 1.2;
+    const moto = car.type.moto, sev = car.sev ?? 0, angry = car.persona === 'presse' || car.mood > 0.6;
+    if (R.stage === 0 && R.t > 1.6 && still) {
+      R.stage = 1;
+      const L = moto ? ['Aïe… ma jambe…', 'Mon bras ! Il m’a fauché !', 'Ma bécane…'] : sev >= 2 ? ['😵 …qu’est-ce qui s’est passé ?', 'Aïe… ma nuque…', 'Les secours ! Appelez les secours !'] : angry ? ['Non mais ÇA VA PAS ?!', 'Ma voiture neuve !!', 'Espèce de chauffard !!', 'T’as vu ce que t’as fait ?!'] : ['Oh non… oh non non non.', 'Mais enfin, vous ne regardez pas devant vous ?', 'Ça va pas, non ?'];
+      g.bubble?.(car, L[Math.floor(Math.random() * L.length)]);
+      if (!moto && sev < 2 && angry) g.audio?.horn?.(car.cur, 1.2);
+    }
+    if (R.stage === 1 && R.t > (sev >= 2 ? 6 : 3.6) && still && Math.abs(car.quat ? 1 - 2 * (car.quat.x ** 2 + car.quat.z ** 2) : 1) > 0.6) {
+      R.stage = 2; this.spawnPed(car, moto ? 'hurt' : sev >= 2 ? 'dazed' : angry ? 'angry' : 'phone');
+    }
+    if (R.stage === 2 && R.t > 9) {
+      R.stage = 3;
+      const tk = g.targetTruck?.();
+      if (tk && car.cur.distanceTo(tk.curPos) < 400 && g.mode !== 'free' && g.state === 'play' && g.released) { g.heat = Math.min(100, (g.heat || 0) + 4); g.bubble?.(car, '📱 Allô le 17 ? Un camion vient de me rentrer dedans !'); }
+      else g.bubble?.(car, ['📱 Allô ? Oui, je viens d’avoir un accident…', '📱 Chérie ? Je vais être en retard…', '📱 Allô, l’assurance ?'][Math.floor(Math.random() * 3)]);
+      if (car.ped) car.ped.mode = 'phone';
+    }
+    if (car.ped) this.pedStep(car, dt);
+  }
+
+  spawnPed(car, mode) {
+    const grp = new THREE.Group(), M = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 });
+    const top = M([0x3a5a8a, 0x8a2a2a, 0x2a6a3a, 0xd8d0c0, 0x222222][Math.floor(Math.random() * 5)]), leg = M(0x2a2e3a), skin = M([0xe8c09a, 0xc08a60, 0x8a5a3a][Math.floor(Math.random() * 3)]);
+    const bx = (m, w, h, d, x, y, z, par = grp) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.castShadow = true; par.add(o); return o; };
+    bx(leg, 0.14, 0.82, 0.16, 0.1, 0.41, 0); bx(leg, 0.14, 0.82, 0.16, -0.1, 0.41, 0); bx(top, 0.42, 0.6, 0.24, 0, 1.12, 0); bx(skin, 0.2, 0.24, 0.2, 0, 1.58, 0);
+    const arms = [-1, 1].map(sx => { const a = new THREE.Group(); a.position.set(sx * 0.27, 1.38, 0); bx(top, 0.1, 0.58, 0.1, 0, -0.27, 0, a); grp.add(a); return a; });
+    // à côté de la portière conducteur (gauche), sur le bord le plus sûr
+    const side = car.d < 0 ? -1 : 1, yaw = car.quat ? Math.atan2(2 * (car.quat.w * car.quat.y + car.quat.x * car.quat.z), 1 - 2 * (car.quat.y ** 2 + car.quat.x ** 2)) : car.curYaw;
+    const off = car.w / 2 + 0.7, px = car.cur.x + Math.cos(yaw) * off * side, pz = car.cur.z - Math.sin(yaw) * off * side;
+    grp.position.set(px, 0, pz); grp.rotation.y = yaw + (mode === 'angry' ? Math.PI : Math.PI / 2 * side);
+    if (mode === 'hurt') { grp.rotation.z = Math.PI / 2; grp.position.y = 0.2; }
+    this.game.scene.add(grp);
+    car.ped = { grp, arms, mode, t: 0 };
+  }
+
+  pedStep(car, dt) {
+    const p = car.ped; p.t += dt; const [L, R] = p.arms, t = p.t;
+    if (p.mode === 'angry') { L.rotation.x = -2.4 + Math.sin(t * 9) * 0.6; R.rotation.x = -2.2 + Math.cos(t * 8) * 0.7; p.grp.position.y = Math.abs(Math.sin(t * 6)) * 0.05; }
+    else if (p.mode === 'phone') { R.rotation.x = -2.6; R.rotation.z = 0.5; L.rotation.x = Math.sin(t * 2) * 0.3; p.grp.rotation.y += Math.sin(t * 0.7) * 0.004; }
+    else if (p.mode === 'dazed') { R.rotation.x = -2.7; R.rotation.z = 0.3; p.grp.rotation.z = Math.sin(t * 1.5) * 0.08; }
+    else if (p.mode === 'hurt' && t > 6) { p.mode = 'dazed'; p.grp.rotation.z = 0; p.grp.position.y = 0; }
   }
 
   detectCrashes(dt) {
@@ -415,20 +504,21 @@ export class Traffic {
           if (dx * dx + dz * dz > reach * reach) continue;
           hit = obbOverlap(pp.x + rvx * dt * 3, pp.z + rvz * dt * 3, py, pl / 2 + 0.3, pw / 2 + 0.25, bp.x, bp.z, by, bl / 2 + 0.3, bw / 2 + 0.25) || obbOverlap(pp.x + rvx * dt, pp.z + rvz * dt, py, pl / 2 + 0.3, pw / 2 + 0.25, bp.x, bp.z, by, bl / 2 + 0.3, bw / 2 + 0.25);
         }
-        if (hit) this.makeWreck(car, cvx, cvz);
+        if (hit) this.makeWreck(car, cvx, cvz, { rvx, rvz, rel, by: v });
       }
     }
     // carambolage : un civil qui arrive trop vite sur une épave
     for (const car of this.cars) if (car.wreck && car.wreckT < 8) for (const o of this.cars) {
       if (o.wreck || o === car) continue;
       const dx = o.cur.x - car.cur.x, dz = o.cur.z - car.cur.z;
-      if (dx * dx + dz * dz < ((o.len + car.len) / 2) ** 2 * 0.7 && o.v > 7) this.makeWreck(o, Math.sin(o.curYaw) * o.v, Math.cos(o.curYaw) * o.v);
+      if (dx * dx + dz * dz < ((o.len + car.len) / 2) ** 2 * 0.7 && o.v > 7) this.makeWreck(o, Math.sin(o.curYaw) * o.v, Math.cos(o.curYaw) * o.v, { rvx: -Math.sin(o.curYaw) * o.v, rvz: -Math.cos(o.curYaw) * o.v, rel: o.v });
     }
   }
 
-  makeWreck(car, vx, vz) {
+  makeWreck(car, vx, vz, hit) {
     const R = this.game.R;
     car.wreck = true; car.wreckT = 0; car.brake = true; car.hazard = 1;
+    if (hit) this.crashFx(car, hit);
     if (this.game.netTraffic) { car.localWreck = true; this.game.net.send({ t: 'wreck', id: car.id, vx: +vx.toFixed(1), vz: +vz.toFixed(1) }); }
     for (const b of [car.body, car.trailer?.body]) {
       if (!b) continue;
