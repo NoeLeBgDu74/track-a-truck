@@ -24,6 +24,7 @@ import { Services } from './services.js';
 import { Works } from './works.js';
 import { Talk } from './talk.js';
 import { Toll } from './toll.js';
+import { Aires } from './aires.js';
 import { Brain, directorTick, copilotReply, copilotBanter, refillLines, pickLine } from './brain.js';
 import { Cinematic, storyShots } from './cine.js';
 import { Showroom } from './showroom.js';
@@ -46,7 +47,7 @@ export class Game {
     this.world = new World(this.scene, R, this.phys, 1);
     this.env = new Env(renderer, this.scene);
     this.traffic = new Traffic(this);
-    this.admin = new Admin(this); this.services = new Services(this); this.works = new Works(this); this.talk = new Talk(this); this.toll = new Toll(this);
+    this.admin = new Admin(this); this.services = new Services(this); this.works = new Works(this); this.talk = new Talk(this); this.toll = new Toll(this); this.aires = new Aires(this);
     this.glows = new Glows(this.scene); this.particles = new Particles(this.scene);
     this.audio = new Audio(); this.input = new Input(); this.camRig = new CameraRig(camera); this.hud = new HUD(); this.net = new Net();
     this.cine = new Cinematic(this);
@@ -145,7 +146,7 @@ export class Game {
     this.patrol = null; this.arrest = null; this.check = null; if (this.checkMesh) { this.scene.remove(this.checkMesh); this.checkMesh = null; }
     (this.officers || []).forEach(o => this.scene.remove(o.grp)); this.officers = [];
     (this.riders || []).forEach(r => this.scene.remove(r.piv)); this.riders = [];
-    this.services?.clear(); this.works?.clear(); this.toll?.clear();
+    this.services?.clear(); this.works?.clear(); this.toll?.clear(); this.aires?.clear();
     this.unitN = 1; this.score = 0; this.combo = 0; this.comboT = 0;
 
     if (cfg.mirror) return this.startMirror(cfg);
@@ -352,7 +353,7 @@ export class Game {
     for (const v of this.vehicles) { if (v.ai) v.headlights = night || this.env.rainAmt > 0.5; v.lightPoints(list); }
     this.traffic.lightPoints(list, night || this.env.rainAmt > 0.6, camPos);
     this.services.lightPoints(list); this.works.lightPoints(list);
-    if (this.state !== 'menu') { this.works.step(dt); this.toll.step(dt); }
+    if (this.state !== 'menu') { this.works.step(dt); this.toll.step(dt); this.aires.step(dt); }
     this.talk.step();
     this.glows.set(list, this.env.night > 0.3 || this.env.tunnel > 0.3 ? 1 : 0.55);
     this.updateLights();

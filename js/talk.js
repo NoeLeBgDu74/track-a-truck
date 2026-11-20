@@ -67,6 +67,7 @@ export class Talk {
     for (const o of g.officers || []) if (o !== P?.officer && !o.dead) add('gendarme', o.grp.position, o, { state: o.mode });
     for (const p of g.services?.people || []) add(p.g.children.length > 9 ? 'secouriste' : 'secouriste', p.g.position, p);
     for (const site of g.works?.sites?.values?.() || []) for (const k of site.workers) add('ouvrier', k.g.position, k, { state: k.tool });
+    for (const site of g.aires?.sites?.values?.() || []) for (const w of site.people) add('automobiliste', w.g.position, w, { state: w.broom ? 'employé de la station qui passe le balai' : 'client sur l’aire de repos (pause, café, toilettes)' });
     return out.sort((a, b) => a.d - b.d);
   }
 
