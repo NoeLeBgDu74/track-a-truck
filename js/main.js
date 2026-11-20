@@ -232,7 +232,7 @@ function ui(game) {
       document.querySelectorAll('#m-mode .chip').forEach(c => { c.classList.toggle('sel', c.dataset.mm === netMode); c.onclick = () => { netMode = c.dataset.mm; net.send({ t: 'mode', m: netMode }); renderMulti(); }; });
       document.querySelectorAll('#multi [data-mteam]').forEach(b => b.classList.toggle('sel', b.dataset.mteam === net.me.team));
       $('m-voice').textContent = net.stream ? '📻 Radio CB allumée (V pour parler)' : '📻 Allumer la radio CB (micro)';
-      if (!net.host) $('m-status').textContent = netMode === 'coop' ? 'Mode Coop : tu seras copilote dans le camion du créateur.' : 'Mode Poursuite : choisis ton équipe, le créateur lance la partie.';
+      if (!net.host) $('m-status').textContent = netMode === 'coop' ? 'Mode Coop : tu seras copilote dans le camion du créateur.' : netMode === 'convoy' ? 'Mode Convoi : chacun son camion, le premier qui livre gagne !' : 'Mode Poursuite : choisis ton équipe, le créateur lance la partie.';
     }
   }
   const myName = () => { settings.playerName = ($('m-name').value.trim() || 'Joueur').slice(0, 20); saveSettings(); return settings.playerName; };
@@ -271,6 +271,7 @@ function ui(game) {
     if (m.difficulty) settings.difficulty = m.difficulty;
     const go = () => {
       if (m.mode === 'coop') game.start({ mode: 'coop', coop: 'online', mirror: !net.host, seed: m.seed, weather: m.weather, time: m.time, cineFirst: true });
+      else if (m.mode === 'convoy') { settings.team = 'truck'; net.setTeam('truck', settings.vehicle.truck); game.start({ mode: 'online', convoy: true, team: 'truck', vehicle: settings.vehicle.truck, seed: m.seed, weather: m.weather, time: m.time }); }
       else game.start({ mode: 'online', team: net.me.team, seed: m.seed, weather: m.weather, time: m.time });
     };
     setTimeout(go, Math.max(0, Math.min(3000, m.at - Date.now())));

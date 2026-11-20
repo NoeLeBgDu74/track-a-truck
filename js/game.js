@@ -140,6 +140,7 @@ export class Game {
     this.heat = (M?.heat || 0) * 20; this.cargo = 100; this.allies = []; this.playerArrived = false; this.nextBlock = 75; this.heliOn = false; this.heliT = 0; this.headStart = this.team === 'truck' ? 15 : 10; this.released = false;
     this.stats = { crashes: 0, topSpeed: 0, dist: 0, start: 0, busts: 0 };
     this.nextReinforce = 55; this.blockDone = !diff.block && !(M?.heat >= 3); this.ended = false; this.radioT = 18; this.tacticT = 0;
+    document.getElementById('convoy-board')?.remove();
     this.patrol = null; this.arrest = null; this.check = null; if (this.checkMesh) { this.scene.remove(this.checkMesh); this.checkMesh = null; }
     (this.officers || []).forEach(o => this.scene.remove(o.grp)); this.officers = [];
     (this.riders || []).forEach(r => this.scene.remove(r.piv)); this.riders = [];
@@ -162,7 +163,8 @@ export class Game {
     this.player = this.addVehicle(vid, ps, pd, { paint, interior: true });
     this.camRig.mode = 'chase'; this.camRig.pos.set(pose.x, 6, pose.z - 20);
 
-    if (cfg.mode === 'chase' || cfg.mode === 'coop') {
+    this.convoy = !!cfg.convoy;
+    if (cfg.mode === 'chase' || cfg.mode === 'coop' || this.convoy) {
       if (this.team === 'truck') {
         // contrôle routier obligatoire : la police attend sur la bande d'arrêt d'urgence, la poursuite démarre au contrôle
         this.check = { s: 650, state: 'wait', t: 0, said: 0 };
@@ -229,6 +231,7 @@ export class Game {
       if (this.team === 'truck') this.radio('Central : un camion suspect vient de quitter le dépôt. Patrouilles en alerte.', 'pol');
       else this.radio('Central : suspect à bord d’un poids lourd, direction Lyon. Interceptez-le avant la sortie 18.', 'pol');
     } else if (cfg.mode === 'free') this.hud.msg('Mode libre : roulez sans objectif. <b>Échap</b> pour le menu.');
+    else if (this.convoy) this.hud.msg('🚛🚛 <b>Convoi</b> : chacun son camion ! Passe le contrôle routier, sème la police et livre la plateforme <b>avant les autres</b>. Radio CB : <kbd>V</kbd>. Gadgets : huile, clous, fumigène.');
     else if (cfg.mode === 'online') this.hud.msg(this.team === 'truck' ? '🚛 <b>Duel</b> : livre la Plateforme Logistique (sortie 18) avant la fin du chrono. Gadgets : <b>9</b> huile ×2, <b>0</b> clous ×2, <b>G</b> fumigène ×1.' : '🚔 <b>Duel</b> : immobilise le camion (moins de 14 km/h à ton contact). <b>9</b> herse ×2 (pose-la devant lui !), <b>0</b> mégaphone, <b>G</b> sirène.');
     if (this.coop) this.coopMsg(this.coopKind === 'solo'
       ? `🚛 Tu es <b>${this.coop.names[0]}</b>, ${this.coop.names[1]} (IA) est ton copilote. <b>Tab</b> = relais : il conduit et c’est toi qui gères la cabine (touches 1-7).`
@@ -890,6 +893,17 @@ export class Game {
     this.riders = this.riders.filter(r => !r.dead);
   }
 
+  // ---------- convoi en ligne : classement en direct ----------
+  convoyBoard(dt) {
+    if ((this.cbT = (this.cbT || 0) - dt) > 0) return; this.cbT = 0.5;
+    let el = document.getElementById('convoy-board');
+    if (!el) { el = document.createElement('div'); el.id = 'convoy-board'; el.style.cssText = 'position:fixed;top:118px;left:12px;z-index:40;background:rgba(12,16,24,.78);border:1px solid #33435e;border-radius:10px;padding:7px 10px;font:12px system-ui;color:#e8ecf2;min-width:170px;pointer-events:none'; document.body.appendChild(el); }
+    const rows = [{ n: 'Toi', s: this.player?.road.s || 0, me: true }];
+    for (const [id, r] of this.remotes) { const rr = worldToRoad(r.curPos.x, r.curPos.z, {}); rows.push({ n: this.net.players.get(id)?.name || 'Joueur', s: rr.s }); }
+    rows.sort((a, b) => b.s - a.s);
+    el.innerHTML = '<b style="color:#ffb347">🏁 Course à la livraison</b>' + rows.map((r, i) => `<div style="${r.me ? 'color:#ffd27a;font-weight:700' : ''}">${i + 1}. ${r.n} — ${Math.max(0, (DEST_S - r.s) / 1000).toFixed(1)} km</div>`).join('');
+  }
+
   // ---------- mode libre : contrôles de police (se ranger, contrôle, on repart… ou refus d'obtempérer) ----------
   patrolStep(dt) {
     const pl = this.player; if (!pl || this.mirror || this.team !== 'truck' || this.person) return;
@@ -1272,7 +1286,8 @@ export class Game {
   rules(dt) {
     const pl = this.player;
     if (this.arrest?.args) return this.arrestStep(dt);
-    if (this.mode === 'free' || this.mode === 'online') { if (this.mode === 'online') this.onlineRules(dt); else this.patrolStep(dt); return; }
+    if (this.mode === 'free' || (this.mode === 'online' && !this.convoy)) { if (this.mode === 'online') this.onlineRules(dt); else this.patrolStep(dt); return; }
+    if (this.convoy) this.convoyBoard(dt);
     this.timeLeft -= dt;
     const truck = this.targetTruck();
     if (this.check && truck) this.checkStep(dt, truck);
@@ -1434,6 +1449,7 @@ export class Game {
 
   finish(win, title, sub) {
     if (this.ended) return;
+    if (this.convoy && this.net?.room) this.net.send({ t: 'event', e: win ? 'delivered' : 'busted', name: this.net.me?.name });
     this.ended = true;
     this.setState('end');
     const pl = this.player;
@@ -1543,9 +1559,10 @@ export class Game {
     n.on('close', () => { for (const r of this.remotes.values()) r.dispose(); this.remotes.clear(); if (this.mirror) { this.toMenu(); } });
     n.on('event', m => {
       if (this.state !== 'play' || this.mode !== 'online') return;
+      if (this.convoy && m.e === 'busted') { this.hud.msg(`🚨 <b>${m.name || 'Un autre routier'}</b> s’est fait arrêter !`, 'pol'); return; }
       const police = this.team === 'police';
       if (m.e === 'busted') police ? this.finish(true, 'Camion intercepté !', 'Tu as immobilisé le camion de ton adversaire. Victoire !') : this.hud.msg('🚨 Un autre camion a été interpellé !', 'pol');
-      if (m.e === 'delivered') police ? this.finish(false, 'Il a livré…', 'Le camion a atteint la Plateforme Logistique.') : this.hud.msg('📦 Un autre camion a livré !');
+      if (m.e === 'delivered') police ? this.finish(false, 'Il a livré…', 'Le camion a atteint la Plateforme Logistique.') : (this.hud.msg(`📦 <b>${m.name || 'Un autre camion'}</b> a livré${this.convoy ? ' en premier !' : ' !'}`), this.convoy && this.hud.big('🏁 ' + (m.name || 'Rival') + ' a livré'));
       if (m.e === 'timeout' && police) this.finish(true, 'Temps écoulé !', 'Le camion n’a pas livré à temps. Victoire de la police !');
     });
     n.on('traf', m => { if (this.netTraffic && this.state !== 'menu') this.traffic.applySnapshot(m.tr); });
