@@ -144,7 +144,7 @@ export class Game {
     this.stats = { crashes: 0, topSpeed: 0, dist: 0, start: 0, busts: 0 };
     this.nextReinforce = 55; this.blockDone = !diff.block && !(M?.heat >= 3); this.ended = false; this.radioT = 18; this.tacticT = 0;
     document.getElementById('convoy-board')?.remove();
-    this.patrol = null; this.arrest = null; this.check = null; if (this.checkMesh) { this.scene.remove(this.checkMesh); this.checkMesh = null; }
+    this.mx = null; this.patrol = null; this.arrest = null; this.check = null; if (this.checkMesh) { this.scene.remove(this.checkMesh); this.checkMesh = null; }
     (this.officers || []).forEach(o => this.scene.remove(o.grp)); this.officers = [];
     (this.riders || []).forEach(r => this.scene.remove(r.piv)); this.riders = [];
     this.services?.clear(); this.works?.clear(); this.toll?.clear(); this.aires?.clear(); this.events?.clear();
@@ -904,6 +904,37 @@ export class Game {
     this.riders = this.riders.filter(r => !r.dead);
   }
 
+  // ---------- missions spéciales (péage honnête, bon samaritain, animaux) ----------
+  missionStep(dt) {
+    const M = this.mission, pl = this.player, X = this.mx ||= { t: 0 }; if (!pl || this.ended) return;
+    X.t += dt;
+    if (M.obj === 'honest') {
+      if (this.toll?.built?.lanes.some(L => L.broken)) return this.finish(false, 'Barrière forcée !', 'Le patron voulait une note de péage, pas une barrière en morceaux.');
+      if ((this.flashN || 0) > 0) return this.finish(false, 'Flashé !', 'Un radar t’a pris : le patron refuse de payer l’amende.');
+      if (this.toll?.paid && !X.paid) { X.paid = true; this.hud.msg('🧾 Note de péage récupérée. Le patron sera content.'); }
+      if (pl.road.s > 2760 && !X.paid && !X.warned) { X.warned = true; return this.finish(false, 'Pas de note de péage', 'Tu es passé sans payer. Mission ratée.'); }
+    }
+    if (M.obj === 'samaritan') {
+      if (!X.spawned && pl.road.s > 700) { // accident 500 m devant le joueur
+        X.spawned = true; const s = pl.road.s + 500;
+        const cars = this.traffic.cars.filter(c => c.dir === 1 && !c.wreck && c.s > s - 80 && c.s < s + 150).slice(0, 3);
+        cars.forEach((c, i) => this.traffic.makeWreck(c, (Math.random() - 0.5) * 8, 6 + i * 2, { rvx: (Math.random() - 0.5) * 18, rvz: 16, rel: 16 }));
+        X.s = cars[0]?.s ?? s; this.hud.msg('🚨 <b>Accident devant !</b> Arrête-toi, descends (F) et reste près des victimes jusqu’aux secours.', 'red');
+      }
+      if (X.s != null && !X.done) {
+        const near = this.person && Math.abs(this.person.pos.x - pl.curPos.x) < 400 && this.traffic.cars.some(c => c.wreck && c.mesh.position.distanceTo(this.person.pos) < 14);
+        X.help = near ? (X.help || 0) + dt : Math.max(0, (X.help || 0) - dt * 0.2);
+        if (near && !X.hinted) { X.hinted = true; this.hud.msg('🫶 Reste avec eux (tu peux leur parler au micro). Les secours arrivent…'); const inc = this.services.incidents.find(i => Math.abs(i.s - X.s) < 150); if (inc) { inc.ambT = Math.min(inc.ambT, inc.t + 8); } }
+        if (X.help > 18) { X.done = true; this.hud.big('MERCI !', 'go'); this.hud.msg('🚑 Les secours ont pris le relais. Bravo ! Maintenant, livre la cargaison.'); this.timeLeft += 60; }
+        if (pl.road.s > X.s + 300) return this.finish(false, 'Non-assistance…', 'Tu es passé à côté de l’accident sans t’arrêter.');
+      }
+    }
+    if (M.obj === 'animals') {
+      X.n = (X.n || 0) - dt; if (X.n <= 0 && pl.kmh > 20) { X.n = 25 + Math.random() * 15; this.events.spawn(pl.road.s + 320, Math.random() < 0.5 ? 'cow' : 'boars'); }
+      if (this.events.list.some(e => e.items.some(o => o.fly))) return this.finish(false, 'Animal percuté !', 'Pauvre bête… Mission ratée.');
+    }
+  }
+
   // ---------- convoi en ligne : classement en direct ----------
   convoyBoard(dt) {
     if ((this.cbT = (this.cbT || 0) - dt) > 0) return; this.cbT = 0.5;
@@ -1299,6 +1330,7 @@ export class Game {
     if (this.arrest?.args) return this.arrestStep(dt);
     if (this.mode === 'free' || (this.mode === 'online' && !this.convoy)) { if (this.mode === 'online') this.onlineRules(dt); else this.patrolStep(dt); return; }
     if (this.convoy) this.convoyBoard(dt);
+    if (this.mission && ['honest', 'samaritan', 'animals'].includes(this.mission.obj)) this.missionStep(dt);
     this.timeLeft -= dt;
     const truck = this.targetTruck();
     if (this.check && truck) this.checkStep(dt, truck);

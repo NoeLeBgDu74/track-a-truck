@@ -148,6 +148,9 @@ export const MISSIONS = [
   { id: 'm3', name: 'Nuit blanche', desc: 'Livraison de nuit sous la pluie. L’hélicoptère a un projecteur.', diff: 'normal', weather: 'rain', time: 'night', obj: 'deliver', reward: 1200, par: 340, heat: 2 },
   { id: 'm4', name: 'Le convoi', desc: 'Trois camions partent ensemble. Au moins deux doivent arriver.', diff: 'normal', weather: 'clear', time: 'day', obj: 'convoy', reward: 1600, par: 360 },
   { id: 'm5', name: 'Contre la montre', desc: 'Le client attend : 4 min 30 chrono. Pensez à l’itinéraire bis (sortie 15).', diff: 'normal', weather: 'fog', time: 'day', obj: 'deliver', reward: 1500, par: 250, limit: 270 },
+  { id: 'm7', name: 'Routier honnête', desc: 'Le patron veut une note de péage : payez au péage (ne forcez pas la barrière) et ne vous faites pas flasher.', diff: 'normal', weather: 'clear', time: 'day', obj: 'honest', reward: 1300, par: 360 },
+  { id: 'm8', name: 'Bon Samaritain', desc: 'Un accident a lieu devant vous. Arrêtez-vous, descendez (F) et restez auprès des victimes jusqu’à l’arrivée des secours, puis livrez.', diff: 'normal', weather: 'clear', time: 'dusk', obj: 'samaritan', reward: 1700, par: 420 },
+  { id: 'm9', name: 'Marguerite', desc: 'Vaches et sangliers en liberté sur l’A77. Livrez sans percuter un seul animal.', diff: 'normal', weather: 'fog', time: 'dawn', obj: 'animals', reward: 1400, par: 360 },
   { id: 'm6', name: 'Ennemi public n°1', desc: 'Recherche maximale dès le départ. Hélicoptère, barrages, herses. Bonne chance.', diff: 'hard', weather: 'storm', time: 'night', obj: 'deliver', reward: 2500, par: 360, heat: 4 },
 ];
 export const UPGRADES = {
