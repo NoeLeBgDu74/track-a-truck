@@ -233,7 +233,8 @@ export class Traffic {
         const ds = (tk.road.s - car.s) * car.dir, sameSide = Math.sign(tk.road.d) === Math.sign(car.d) || car.d77;
         const closing = (tk.speed * Math.sign(roadYaw(tk.road.s) * 0 + 1)) - car.v;
         // le camion fou arrive vite derrière (ou la poursuite) : panique, on s'écarte
-        if (sameSide && ds < -car.back && ds > -80 && (closing > 6 || (g.released && g.mode !== 'free'))) {
+        const wild = (g.released && g.mode !== 'free' && (tk.kmh > 70 || g.police.some(p => p.v.siren && p.v.curPos.distanceToSquared(tk.curPos) < 150 * 150))) || tk.kmh > 150 || (closing > 16 && Math.abs(tk.road.d - car.d) < 2.2 && ds > -35) || tk.damage > 60;
+        if (sameSide && ds < -car.back && ds > -80 && wild) {
           if (car.feel !== 'panic') { car.feel = 'panic'; car.feelT = 5; car.hazard = 4; if (car.persona !== 'distrait') g.bubble?.(car, ['Mais il est fou ce camion !', 'AAAH il arrive !', 'Je me pousse, je me pousse !', 'C’est quoi ce délire ?!'][Math.floor(this.r() * 4)]); }
         }
         // curiosité : la police et l'hélicoptère
@@ -305,12 +306,14 @@ export class Traffic {
       let dodgeT = 0;
       if (sideThreat) {
         dodgeT = clamp(car.d - sideThreat.d, -1, 1) > 0 ? 1 : -1;
-        if (this.honkCd <= 0 && sideThreat.veh === g.player && car.v > 8) { this.honkCd = 2 + this.r() * 2; g.audio?.honkAt(car.cur, car.type.trucks); }
+        const veh = sideThreat.veh, latGap = Math.abs(sideThreat.d - car.d) - (sideThreat.w + car.w) / 2, drift = Math.abs(sideThreat.lat || 0);
+        if (latGap > 0.45 && drift < 1.2) dodgeT = 0; // il roule normalement dans sa voie : on garde la sienne
+        if (this.honkCd <= 0 && veh === g.player && car.v > 8 && (latGap < 0.25 || drift > 2)) { this.honkCd = 2 + this.r() * 2; g.audio?.honkAt(car.cur, car.type.trucks); }
       }
       car.dodge += (dodgeT * 0.9 - car.dodge) * Math.min(1, dt * 2.5);
       this.kinematics(car, dt);
 
-      if (lead.o?.veh && lead.o.veh === g.player && lead.gap < 8 && car.v > 12 && this.honkCd <= 0) {
+      if (lead.o?.veh && lead.o.veh === g.player && lead.gap < 4.5 && car.v > 12 && car.v - (lead.o.v || 0) > 3 && this.honkCd <= 0) {
         this.honkCd = 2.5; g.audio?.honkAt(car.cur, car.type.trucks);
         if (car.persona === 'presse' || car.persona === 'calme' && this.r() < 0.3) { car.feel = 'angry'; car.feelT = 7; car.flash = 1.5; g.bubble?.(car, ['Non mais ho !', 'Apprends à conduire !', 'Espèce de chauffard !', 'Tu vas voir toi…'][Math.floor(this.r() * 4)]); }
         else g.bubble?.(car, ['Oh là là…', 'Il m’a fait peur !'][Math.floor(this.r() * 2)]);

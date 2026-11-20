@@ -950,22 +950,27 @@ export class Game {
     if (!car?.cur || car.cur.distanceTo(this.camera.position) > 140) return;
     this.bubbleList ||= [];
     if (this.bubbleList.length >= 4 || this.bubbleList.some(b => b.car === car)) return;
-    const c = document.createElement('canvas'); c.width = 512; c.height = 128; const g = c.getContext('2d');
-    g.font = '700 34px Arial'; const w = Math.min(500, g.measureText(text).width + 44);
-    g.fillStyle = 'rgba(255,255,255,0.95)'; g.beginPath(); g.roundRect((512 - w) / 2, 10, w, 76, 26); g.fill();
-    g.beginPath(); g.moveTo(240, 84); g.lineTo(256, 112); g.lineTo(272, 84); g.fill();
-    g.fillStyle = '#111'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 256, 49);
+    text = String(text).slice(0, 140);
+    const c = document.createElement('canvas'), W = 640, g0 = c.getContext('2d'), F = '700 34px Arial', LH = 40;
+    g0.font = F; const lines = []; let cur = '';
+    for (const word of text.split(/\s+/)) { const t2 = cur ? cur + ' ' + word : word; if (g0.measureText(t2).width > W - 70 && cur) { lines.push(cur); cur = word; } else cur = t2; }
+    if (cur) lines.push(cur); lines.splice(4);
+    const H = lines.length * LH + 40 + 30; c.width = W; c.height = H; const g = c.getContext('2d'); g.font = F;
+    const w = Math.min(W - 8, Math.max(...lines.map(l => g.measureText(l).width)) + 50), bh = lines.length * LH + 34;
+    g.fillStyle = 'rgba(255,255,255,0.95)'; g.beginPath(); g.roundRect((W - w) / 2, 4, w, bh, 26); g.fill();
+    g.beginPath(); g.moveTo(W / 2 - 16, bh + 2); g.lineTo(W / 2, bh + 28); g.lineTo(W / 2 + 16, bh + 2); g.fill();
+    g.fillStyle = '#111'; g.textAlign = 'center'; g.textBaseline = 'middle'; lines.forEach((l, i) => g.fillText(l, W / 2, 4 + 17 + LH / 2 + i * LH));
     const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true })); sp.scale.set(6, 1.5, 1); sp.renderOrder = 20;
-    this.scene.add(sp); this.bubbleList.push({ car, sp, t: 0 });
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true })); sp.scale.set(7, 7 * H / W, 1); sp.center.set(0.5, 0); sp.renderOrder = 20;
+    this.scene.add(sp); this.bubbleList.push({ car, sp, t: 0, life: 2.6 + text.length * 0.045 });
   }
   bubblesStep(dt) {
     if (!this.bubbleList) return;
     for (const b of this.bubbleList) {
       b.t += dt; const p = b.car.mesh?.position || b.car.cur;
-      b.sp.position.set(p.x, (b.car.type?.h || 1.5) + 2.2 + Math.min(0.4, b.t), p.z);
-      b.sp.material.opacity = b.t < 2.4 ? 1 : Math.max(0, 1 - (b.t - 2.4) * 2);
-      if (b.t > 2.9 || b.car.dead) { this.scene.remove(b.sp); b.sp.material.map.dispose(); b.dead = true; }
+      b.sp.position.set(p.x, (b.car.type?.h || 1.5) + 0.9 + Math.min(0.4, b.t), p.z);
+      const L = b.life || 2.9; b.sp.material.opacity = b.t < L - 0.5 ? 1 : Math.max(0, (L - b.t) * 2);
+      if (b.t > L || b.car.dead) { this.scene.remove(b.sp); b.sp.material.map.dispose(); b.dead = true; }
     }
     this.bubbleList = this.bubbleList.filter(b => !b.dead);
   }

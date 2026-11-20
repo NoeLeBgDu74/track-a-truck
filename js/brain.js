@@ -7,32 +7,32 @@
 import { settings, roadYaw, DEST_S, EXIT_GAP, worldToRoad } from './config.js';
 
 const FREE = 'https://api.llm7.io/v1/chat/completions'; // gratuit sans clé (quota limité)
-const RELAY = 'https://mnemo-8272.netlify.app/api/groq'; // relais Groq de l'utilisateur (clé gardée côté serveur)
+const RELAY = 'https://track-a-truck-ia.netlify.app/api/groq'; // relais Groq dédié au jeu (clé gardée côté serveur Netlify)
 const GROQ = 'https://api.groq.com/openai/v1/chat/completions';
 
 export const Brain = {
-  busy: false, fails: 0, last: 0, ok: 0, pauseUntil: 0, status: 'en attente',
+  busy: false, fails: 0, relayFails: 0, last: 0, ok: 0, pauseUntil: 0, status: 'en attente',
   enabled() { return settings.aiNpc !== false && performance.now() > this.pauseUntil; },
   async ask(messages, maxTokens = 500) {
     if (this.busy || !this.enabled()) return null;
     this.busy = true;
     const key = (settings.groqKey || '').trim();
-    const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 12000);
+    const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 20000);
     try {
       const useRelay = !key && !this.relayDown;
-      const body = key ? { model: 'llama-3.1-8b-instant', messages, temperature: 0.9, max_tokens: maxTokens, response_format: { type: 'json_object' } }
-        : useRelay ? { model: 'openai/gpt-oss-20b', messages, temperature: 0.9, max_tokens: Math.max(maxTokens, 700), response_format: { type: 'json_object' } }
+      const body = key ? { model: 'openai/gpt-oss-20b', messages, temperature: 0.9, max_tokens: maxTokens, response_format: { type: 'json_object' } }
+        : useRelay ? { model: 'openai/gpt-oss-20b', messages, temperature: 0.9, max_tokens: Math.max(maxTokens, 900), response_format: { type: 'json_object' } }
         : { model: 'default', messages, temperature: 0.9, max_tokens: maxTokens };
       let r;
-      try { r = await fetch(key ? GROQ : useRelay ? RELAY : FREE, { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (key || 'unused') }, body: JSON.stringify(body) }); } catch (e) { if (useRelay) { this.relayDown = true; this.status = 'relais Groq indisponible, essai du service gratuit'; } throw e; }
+      try { r = await fetch(key ? GROQ : useRelay ? RELAY : FREE, { method: 'POST', signal: ctrl.signal, headers: key ? { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key } : useRelay ? { 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json', Authorization: 'Bearer unused' }, body: JSON.stringify(body) }); } catch (e) { if (useRelay && ++this.relayFails >= 3) { this.relayDown = true; this.status = 'relais Groq indisponible, essai du service gratuit'; } throw e; }
       if (r.status === 429) { this.pauseUntil = performance.now() + 120000; this.status = key ? 'quota Groq atteint, pause 2 min' : 'service gratuit saturé : ajoute une clé Groq'; throw new Error('429'); }
       if (r.status === 401 || r.status === 403) { this.pauseUntil = performance.now() + 600000; this.status = key ? 'clé Groq refusée' : 'service gratuit indisponible : ajoute une clé Groq'; throw new Error('auth'); }
-      if (!r.ok) { if (useRelay) this.relayDown = true; throw new Error('HTTP ' + r.status); }
+      if (!r.ok) { if (useRelay && ++this.relayFails >= 3) this.relayDown = true; throw new Error('HTTP ' + r.status); }
       const j = await r.json();
       const txt = j.choices?.[0]?.message?.content || '';
       const m = txt.match(/\{[\s\S]*\}/);
       const out = m ? JSON.parse(m[0]) : null;
-      this.fails = 0; this.ok++; this.status = (key ? 'Groq (ta clé)' : useRelay ? 'Groq (relais)' : 'service gratuit') + ' : ' + this.ok + ' réponses';
+      this.fails = 0; this.relayFails = 0; this.ok++; this.status = (key ? 'Groq (ta clé)' : useRelay ? 'Groq (relais)' : 'service gratuit') + ' : ' + this.ok + ' réponses';
       return out;
     } catch (e) { this.fails++; if (this.fails >= 4 && this.pauseUntil < performance.now()) { this.pauseUntil = performance.now() + 90000; this.status = this.status || 'injoignable'; } return null; }
     finally { clearTimeout(to); this.busy = false; }
@@ -66,7 +66,7 @@ export async function directorTick(g) {
   if (!near.length && !(chase && units.length)) return;
   const sys = `Tu es le « directeur » d'un jeu de poursuite sur une autoroute française. Tu donnes vie aux conducteurs civils et à la police avec du bon sens ET de l'humour.
 Réponds UNIQUEMENT en JSON : {"conducteurs":[{"id":nombre,"action":"${CIV_ACTIONS.join('|')}","pensee":"≤ 9 mots, français familier, drôle et crédible"}],"police":{"radio":"message radio réaliste de la gendarmerie, ≤ 22 mots (ou vide)","ordres":[{"unite":nombre,"tactique":"${TACTICS.join('|')}"}],"demande":"rien|renfort|barrage|herse|helico"}}
-Règles : les conducteurs réagissent à ce qu'ils voient (un camion fou les double : panique ou colère ; la police arrive : se rabattre ; un témoin peut appeler la police ; un distrait filme). La police coordonne : une unité devant pour freiner, une sur le flanc, une derrière ; garder la sortie 18 quand le camion approche ; demander un barrage ou une herse si le camion s'échappe, un hélico si on le perd. Ne mets que les ids et unités fournis.`;
+Règles : comme dans la vraie vie, un camion qui roule normalement n'intéresse personne : si la conduite du camion est « normale » et qu'il n'y a pas de poursuite, la plupart des conducteurs font « continuer » sans pensée (pensee vide), au plus un pense à sa vie (boulot, radio, enfants…) sans parler du camion. Les conducteurs ne réagissent qu'à ce qu'ils voient vraiment (un camion fou les double : panique ou colère ; la police arrive : se rabattre ; un témoin peut appeler la police ; un distrait filme). La police coordonne : une unité devant pour freiner, une sur le flanc, une derrière ; garder la sortie 18 quand le camion approche ; demander un barrage ou une herse si le camion s'échappe, un hélico si on le perd. Ne mets que les ids et unités fournis.`;
   const res = await Brain.ask([{ role: 'system', content: sys }, { role: 'user', content: JSON.stringify(sit) }]);
   if (!res || g.state !== 'play') return;
   applyDecisions(g, res, near, units, truck);
@@ -84,7 +84,8 @@ function applyDecisions(g, res, near, units, truck) {
     if (a === 'klaxonner') g.audio?.honkAt(c.cur, c.type.trucks);
     if (a === 'appeler_police' && g.mode !== 'free' && g.team === 'truck') { g.heat = Math.min(100, (g.heat || 0) + 3); g.say?.('ia-witness', `Un automobiliste signale le camion au PK ${(truck.road.s / 1000).toFixed(1)}.`, 18); }
     if ((a === 'se_rabattre' || a === 'laisser_passer') && !c.lc && !c.d77 && c.lane < 2) c.lc = { from: c.lane, to: c.lane + 1, t: 0, dur: 3 };
-    if (d.pensee && bubbles < 3 && Math.random() < 0.85) { g.bubble?.(c, (a === 'filmer' ? '📱 ' : '') + String(d.pensee).slice(0, 48)); bubbles++; }
+    const calm = !(g.released && g.mode !== 'free') && truck.kmh < 120 && truck.damage < 40;
+    if (d.pensee && bubbles < (calm ? 1 : 3) && Math.random() < (calm ? 0.35 : 0.85)) { g.bubble?.(c, (a === 'filmer' ? '📱 ' : '') + String(d.pensee).slice(0, 110)); bubbles++; }
   }
   const P = res.police; if (!P || !g.released || g.mode === 'free') return;
   const map = { devant_freiner: 'lead', flanc: 'flank', derriere: 'tail', rester_a_distance: 'tail', garder_sortie: 'guard' };
