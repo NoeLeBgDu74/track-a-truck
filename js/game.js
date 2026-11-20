@@ -22,6 +22,7 @@ import { Listener, understand } from './speech.js';
 import { Admin } from './admin.js';
 import { Services } from './services.js';
 import { Works } from './works.js';
+import { Talk } from './talk.js';
 import { Brain, directorTick, copilotReply, copilotBanter, refillLines, pickLine } from './brain.js';
 import { Cinematic, storyShots } from './cine.js';
 import { Showroom } from './showroom.js';
@@ -44,7 +45,7 @@ export class Game {
     this.world = new World(this.scene, R, this.phys, 1);
     this.env = new Env(renderer, this.scene);
     this.traffic = new Traffic(this);
-    this.admin = new Admin(this); this.services = new Services(this); this.works = new Works(this);
+    this.admin = new Admin(this); this.services = new Services(this); this.works = new Works(this); this.talk = new Talk(this);
     this.glows = new Glows(this.scene); this.particles = new Particles(this.scene);
     this.audio = new Audio(); this.input = new Input(); this.camRig = new CameraRig(camera); this.hud = new HUD(); this.net = new Net();
     this.cine = new Cinematic(this);
@@ -348,6 +349,7 @@ export class Game {
     this.traffic.lightPoints(list, night || this.env.rainAmt > 0.6, camPos);
     this.services.lightPoints(list); this.works.lightPoints(list);
     if (this.state !== 'menu') this.works.step(dt);
+    this.talk.step();
     this.glows.set(list, this.env.night > 0.3 || this.env.tunnel > 0.3 ? 1 : 0.55);
     this.updateLights();
     this.particles.points.material.uniforms.light.value = Math.max(0.12, 1 - this.env.night * 0.85) * (1 - this.env.tunnel * 0.4);
@@ -874,6 +876,8 @@ export class Game {
             R.rest = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, e.y, 0.15, 'YXZ'));
           }
         }
+      } else if (R.state === 'up') { // le motard se relève (assis, sonné)
+        R.piv.quaternion.slerp(R.rest, Math.min(1, dt * 1.5)); p.y += (0.45 - p.y) * Math.min(1, dt * 2);
       } else if (R.state === 'lie') {
         R.piv.quaternion.slerp(R.rest, Math.min(1, dt * 3)); p.y += (0.2 - p.y) * Math.min(1, dt * 3);
         if (R.t > 2.5 && !R.said) { R.said = true; this.bubble?.(R, pickLine('moto_blesse', ['Aïe… ma jambe…', 'Mon bras ! Il m’a fauché !', 'Ma bécane…', 'Ouch… je sens plus mes doigts…'])); if (R.label) this.say('mfall' + R.label, `${R.label} : « Je suis au sol ! Moto HS ! »`, 30); }
@@ -1010,6 +1014,9 @@ export class Game {
         this.hud.msg(`👮 ${officer} : « Bonjour monsieur. Contrôle de routine : papiers du véhicule et lettre de voiture, s’il vous plaît. »`);
         Voice.say('Bonjour monsieur. Contrôle de routine. Papiers du véhicule et lettre de voiture, s’il vous plaît.', { pitch: 0.8, rate: 1.05, voice: 1 });
       } else if (ds > 22) this.checkBreak('Refus d’obtempérer ! Le poids lourd a forcé le contrôle !');
+    } else if (C.state === 'waved') {
+      C.t += dt;
+      if (C.t > 40) this.checkBreak('Centrale : la plaque du poids lourd est signalée ! Le gendarme s’est fait avoir, toutes les unités !');
     } else if (C.state === 'inspect') {
       C.t += dt;
       if (kmh > 12 && C.t < 7.5) return this.checkBreak('Il redémarre en plein contrôle ! Il prend la fuite !');

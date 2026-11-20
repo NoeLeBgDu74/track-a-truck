@@ -117,7 +117,7 @@ export class AIDriver {
     const tactic = this.tactic;
     // camion presque arrêté : on l'encercle calmement (pas de carambolage)
     if (tgt.kmh < 25 && Math.abs(ds) < 60) {
-      ignore = tgt;
+      ignore = Math.abs(d - tgt.road.d) > 2.8 ? tgt : null; // on ne « voit » plus le camion que s'il est à côté : derrière lui, on freine
       if (tactic === 'lead') { wantD = tgt.road.d; wantV = ds < -7 ? 0 : tv + 3; if (ds > -7) wantD = tgt.road.d + (this.side || 1) * 3.6; }
       else if (tactic === 'flank') { wantD = tgt.road.d + (this.side || -1) * 3.4; wantV = ds > 1 ? tv + 4 : tv * 0.8; }
       else { wantD = tgt.road.d; wantV = ds > tlen + 9 ? tv + 4 : 0; ignore = null; }
@@ -129,7 +129,7 @@ export class AIDriver {
       wantV = Math.min(wantV, ds > 900 ? 99 : this.speedCap / 3.6);
       if (g.env.wet > 0.5 || g.env.tunnel > 0.5) wantV = Math.min(wantV, 45);
     } else if (ds > -5) {
-      ignore = tgt;
+      ignore = Math.abs(d - tgt.road.d) > 2.8 ? tgt : null; // on ne « voit » plus le camion que s'il est à côté : derrière lui, on freine
       // à hauteur : chaque unité a son côté (le meneur double, le flanc presse, l'arrière reste derrière)
       if (!this.side) this.side = tgt.road.d > laneD(1, 1) ? -1 : 1;
       if (tactic === 'tail') { wantD = tgt.road.d; wantV = ds > tlen + 12 ? tv + 6 : tv - 1; ignore = null; }
@@ -139,11 +139,11 @@ export class AIDriver {
         wantD = wd;
         wantV = tv + (ds > tlen ? clamp((ds - tlen) * 0.4, 6, 20) : (tactic === 'lead' ? 10 : 2) * this.skill);
         // flanc : pousser le camion vers la glissière quand on est à hauteur de la cabine, sans civil de l'autre côté
-        if (tactic === 'flank' && ds < 3 && ds > -4 && !this.sideBusy(tgt.road.d - this.side * 3.6, tgt.def.w, tgt)) wantD = tgt.road.d + this.side * 1.4;
+        // (plus de « poussette » : la police contourne le camion, elle ne le pousse pas)
       }
     } else {
       // devant : se rabattre devant le camion et freiner progressivement (bouchon roulant)
-      ignore = tgt;
+      ignore = Math.abs(d - tgt.road.d) > 2.8 ? tgt : null; // on ne « voit » plus le camion que s'il est à côté : derrière lui, on freine
       wantD = tgt.road.d;
       wantV = ds > -16 ? Math.max(0, tv - 6 * this.skill) : Math.max(0, tv - clamp((-ds - 10) * 0.25, 3, 20));
       if (tactic === 'flank') { wantD = tgt.road.d + (this.side || 1) * 3.6; wantV = tv; }
