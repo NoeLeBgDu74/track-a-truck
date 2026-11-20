@@ -29,7 +29,7 @@ import { RoadEvents } from './events.js';
 import { Brain, directorTick, copilotReply, copilotBanter, refillLines, pickLine } from './brain.js';
 import { Cinematic, storyShots } from './cine.js';
 import { Showroom } from './showroom.js';
-import { buildPoliceCar, buildPlayerTruck, buildTrailer, makeWheel, buildPerson, buildSeated, initMaterials, MAT } from './models.js';
+import { buildPoliceCar, buildPoliceMoto, buildPlayerTruck, buildTrailer, makeWheel, buildPerson, buildSeated, initMaterials, MAT } from './models.js';
 
 const $ = id => document.getElementById(id);
 const DT = 1 / 60;
@@ -143,7 +143,7 @@ export class Game {
     this.heat = (M?.heat || 0) * 20; this.cargo = 100; this.allies = []; this.playerArrived = false; this.nextBlock = 75; this.heliOn = false; this.heliT = 0; this.headStart = this.team === 'truck' ? 15 : 10; this.released = false;
     this.stats = { crashes: 0, topSpeed: 0, dist: 0, start: 0, busts: 0 };
     this.nextReinforce = 55; this.blockDone = !diff.block && !(M?.heat >= 3); this.ended = false; this.radioT = 18; this.tacticT = 0;
-    document.getElementById('convoy-board')?.remove();
+    document.getElementById('convoy-board')?.remove(); document.getElementById('mp-list')?.remove();
     this.mx = null; this.patrol = null; this.arrest = null; this.check = null; if (this.checkMesh) { this.scene.remove(this.checkMesh); this.checkMesh = null; }
     (this.officers || []).forEach(o => this.scene.remove(o.grp)); this.officers = [];
     (this.riders || []).forEach(r => this.scene.remove(r.piv)); this.riders = [];
@@ -357,8 +357,6 @@ export class Game {
     { // camion du joueur : pschhh du frein à air à l'arrêt, bip de recul
       const v = this.player;
       if (v && v.def.team === 'truck' && ['play', 'countdown'].includes(this.state) && !this.person) {
-        if (v.kmh > 8) this.wasMoving = 3; else if (this.wasMoving > 0) this.wasMoving -= dt;
-        if (v.kmh < 0.8 && this.wasMoving > 0) { this.wasMoving = 0; this.audio.airBrake?.(v.curPos); }
         if (v.reverse && v.speed < -0.3) { this.bkT = (this.bkT || 0) - dt; if (this.bkT <= 0) { this.bkT = 0.85; this.audio.backup?.(v.curPos); } } else this.bkT = 0;
       }
     }
@@ -622,7 +620,9 @@ export class Game {
     }
     if (this.coop && this.coopKind === 'online') this.sendSnapshot(dt);
     else if (this.mode === 'online') {
-      this.net.tick(dt, this.person ? null : pl);
+      const ex = { hn: pl?.horn ? 1 : 0 };
+      if (this.convoy && pl) ex.pol = this.police.filter(p => p.v !== pl && !p.v.disabled && p.v.curPos.distanceToSquared(pl.curPos) < 800 * 800).slice(0, 5).map(p => [+p.v.curPos.x.toFixed(1), +p.v.curPos.z.toFixed(1), +p.v.yaw.toFixed(2), p.v.siren ? 1 : 0, p.v.def.moto ? 1 : 0]);
+      this.net.tick(dt, this.person ? null : pl, ex);
       if (this.net.host && this.net.connected) { this.trafT = (this.trafT || 0) - dt; if (this.trafT <= 0) { this.trafT = 1 / 7.5; this.net.send({ t: 'traf', tr: this.traffic.snapshot() }); } }
     }
   }
@@ -1634,7 +1634,20 @@ export class Game {
     n.on('speech', m => { if (this.coop) this.handleSpeech(m.idx, m.text, false); });
     n.on('adm', m => this.admin.remote(m));
   }
+  playersPanel(dt) {
+    const show = this.net.room && (this.mode === 'online' || this.coopKind === 'online') && ['play', 'countdown'].includes(this.state);
+    let el = document.getElementById('mp-list');
+    if (!show) { el?.remove(); return; }
+    if ((this.mpT = (this.mpT || 0) - dt) > 0) return; this.mpT = 0.3;
+    if (!el) { el = document.createElement('div'); el.id = 'mp-list'; el.style.cssText = 'position:fixed;top:118px;right:12px;z-index:40;background:rgba(12,16,24,.75);border:1px solid #33435e;border-radius:10px;padding:6px 10px;font:12px system-ui;color:#e8ecf2;min-width:160px;pointer-events:none'; document.body.appendChild(el); }
+    const me = this.net.me, myLv = this.net.myLevel?.() || 0, pl = this.player;
+    const row = (icon, name, extra, talk) => `<div style="display:flex;gap:6px;align-items:center;margin:2px 0"><span>${talk ? '🎙️' : icon}</span><b style="flex:1;font-weight:600">${name}</b><span style="color:#9fb0c8">${extra}</span></div>`;
+    let h = `<div style="color:#ffb347;font-weight:700;margin-bottom:3px">📻 Radio CB <span style="color:#9fb0c8;font-weight:400">(V pour parler)</span></div>` + row(me.team === 'police' ? '🚔' : '🚛', (me.name || 'Moi') + ' (toi)', this.net.ping != null ? this.net.ping + ' ms' : '', myLv > 0.04 && this.input.down('KeyV'));
+    for (const [id, p] of this.net.players) { if (id === this.net.id) continue; const r = this.remotes.get(id), lv = this.net.peerLevel?.(id) || 0; h += row((p.state?.team || p.team) === 'police' ? '🚔' : '🚛', p.name || 'Joueur', r && pl ? Math.round(r.curPos.distanceTo(pl.curPos)) + ' m' : '', lv > 0.04); }
+    el.innerHTML = h;
+  }
   updateRemotes(dt) {
+    this.playersPanel(dt);
     if (!this.net.room || this.mode !== 'online') return;
     for (const [id, p] of this.net.players) {
       if (id === this.net.id || !p.state) continue;
@@ -1807,15 +1820,33 @@ class RemoteCar {
     this.body.setNextKinematicRotation({ x: this.q.x, y: this.q.y, z: this.q.z, w: this.q.w });
     if (this.tmesh && s.tp) { this.tmesh.position.set(s.tp[0], s.tp[1] - 1, s.tp[2]); this.tmesh.quaternion.set(...s.tq); }
     this.pos = this.curPos;
+    // klaxon du joueur distant
+    if (s.hn && !this.hn && this.game.player) this.game.audio.honkAt?.(this.curPos, this.def.team === 'truck');
+    this.hn = !!s.hn;
+    // police IA qui le poursuit (mode convoi) : voitures « fantômes » visibles chez moi
+    const P = s.pol || []; this.ghosts ||= [];
+    while (this.ghosts.length > P.length) { const gh = this.ghosts.pop(); this.game.scene.remove(gh.mesh); this.game.audio.updateSiren(gh, false); }
+    P.forEach((a, i) => {
+      let gh = this.ghosts[i];
+      if (!gh || gh.moto !== !!a[4]) { if (gh) this.game.scene.remove(gh.mesh); const def = a[4] ? VEHICLES.moto : VEHICLES.sedan; const m = a[4] ? buildPoliceMoto(def) : buildPoliceCar(def); const mesh = new THREE.Group(); mesh.add(m.group); m.group.position.y = 0; this.game.scene.add(mesh); gh = this.ghosts[i] = { mesh, m, pos: new THREE.Vector3(a[0], 0, a[1]), tgt: new THREE.Vector3(), yaw: a[2], moto: !!a[4], t: Math.random() * 3 }; }
+      gh.tgt.set(a[0], 0, a[1]); if (gh.pos.distanceTo(gh.tgt) > 40) gh.pos.copy(gh.tgt); gh.tyaw = a[2]; gh.siren = !!a[3];
+    });
   }
   render() {
     this.mesh.position.set(this.curPos.x, this.curPos.y - (this.def.wheelR + 0.25), this.curPos.z); this.mesh.quaternion.copy(this.q);
+    for (const gh of this.ghosts || []) {
+      gh.pos.lerp(gh.tgt, 0.18); let dy = (gh.tyaw ?? gh.yaw) - gh.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); gh.yaw += dy * 0.2;
+      gh.mesh.position.copy(gh.pos); gh.mesh.rotation.set(0, gh.yaw, 0); gh.t += 1 / 60;
+      const L = gh.m.lights; if (L) { const ph = (gh.t * 2.6) % 1; L.blue.emissiveIntensity = gh.siren && ph < 0.3 ? 9 : 0.15; L.red.emissiveIntensity = gh.siren && ph > 0.5 && ph < 0.8 ? 9 : 0.15; }
+      const pl = this.game.player; this.game.audio.updateSiren(gh, gh.siren && pl && gh.pos.distanceToSquared(pl.curPos) < 250 * 250);
+    }
     for (const w of this.wheels) { w.rot = (w.rot || 0) + (this.spd || 0) / this.def.wheelR / 60; w.w.rotation.set(w.rot, w.front ? this.st * 0.5 : 0, 0, 'YXZ'); }
     const pl = this.game.player, dist = pl ? Math.round(this.curPos.distanceTo(pl.curPos)) : 0;
     this.tag.position.set(this.curPos.x, this.curPos.y + this.def.h + 1.6, this.curPos.z); this.tag.scale.setScalar(Math.max(3, Math.min(14, dist / 14)) ).multiply(new THREE.Vector3(1, 0.25, 1));
-    if ((this.tagT -= 1 / 60) <= 0) { this.tagT = 0.4; const g = this.tagC.getContext('2d'); g.clearRect(0, 0, 256, 64); g.fillStyle = this.team === 'police' ? 'rgba(30,70,200,0.85)' : 'rgba(220,100,20,0.85)'; g.beginPath(); g.roundRect(4, 6, 248, 52, 14); g.fill(); g.fillStyle = '#fff'; g.font = '700 26px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(`${this.team === 'police' ? '🚔' : '🚛'} ${this.name} · ${dist} m`, 128, 33); this.tagTex.needsUpdate = true; }
+    const talking = (this.mouthLv || 0) > 0.04; if (talking !== this.wasTalking) { this.wasTalking = talking; this.tagT = 0; }
+    if ((this.tagT -= 1 / 60) <= 0) { this.tagT = 0.4; const g = this.tagC.getContext('2d'); g.clearRect(0, 0, 256, 64); g.fillStyle = this.team === 'police' ? 'rgba(30,70,200,0.85)' : 'rgba(220,100,20,0.85)'; g.beginPath(); g.roundRect(4, 6, 248, 52, 14); g.fill(); g.fillStyle = '#fff'; g.font = '700 26px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(`${(this.mouthLv || 0) > 0.04 ? '🎙️' : (this.team === 'police' ? '🚔' : '🚛')} ${this.name} · ${dist} m`, 128, 33); this.tagTex.needsUpdate = true; }
     if (this.drv) { const lv = this.game.net.peerLevel(this.peerId); this.mouthLv = Math.max(lv, (this.mouthLv || 0) * 0.8); this.drv.mouth.scale.y = 0.6 + this.mouthLv * 4; this.drv.head.rotation.y = Math.sin(performance.now() * 0.0007 + this.peerId.length) * 0.4; }
     if (this.model.lights) { this.lightT += 1 / 60; const ph = (this.lightT * 2.6) % 1; this.model.lights.blue.emissiveIntensity = this.siren && ph < 0.3 ? 9 : 0.15; this.model.lights.red.emissiveIntensity = this.siren && ph > 0.5 && ph < 0.8 ? 9 : 0.15; }
   }
-  dispose() { this.game.scene.remove(this.mesh); this.game.scene.remove(this.tag); if (this.tmesh) this.game.scene.remove(this.tmesh); this.game.phys.removeRigidBody(this.body); this.game.audio.updateSiren(this, false); }
+  dispose() { for (const gh of this.ghosts || []) { this.game.scene.remove(gh.mesh); this.game.audio.updateSiren(gh, false); } this.game.scene.remove(this.mesh); this.game.scene.remove(this.tag); if (this.tmesh) this.game.scene.remove(this.tmesh); this.game.phys.removeRigidBody(this.body); this.game.audio.updateSiren(this, false); }
 }
