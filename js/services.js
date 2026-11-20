@@ -2,7 +2,7 @@
 // arrivent par la bande d'arrêt d'urgence, gyrophares allumés. Les secouristes vont chercher les blessés,
 // les pompiers éteignent la fumée, la dépanneuse charge l'épave et repart.
 import * as THREE from 'three';
-import { roadToWorld, roadYaw, worldToRoad, SHOULDER_D } from './config.js';
+import { roadToWorld, roadYaw, worldToRoad, SHOULDER_D, laneD } from './config.js';
 import { pickLine } from './brain.js';
 
 const _p = { x: 0, z: 0 }, _r = {};
@@ -64,6 +64,7 @@ function person(top, pants) {
 export class Services {
   constructor(game) { this.g = game; this.units = []; this.incidents = []; this.people = []; this.t = 0; }
   clear() {
+    for (const i of this.incidents) if (i.coneGrp) this.g.scene.remove(i.coneGrp);
     for (const u of this.units) { this.g.scene.remove(u.m.g); this.g.audio?.updateSiren(u, false); if (u.body) this.g.phys.removeRigidBody(u.body); }
     for (const p of this.people) this.g.scene.remove(p.g);
     this.units = []; this.incidents = []; this.people = [];
@@ -91,7 +92,7 @@ export class Services {
   }
   place(u) {
     roadToWorld(u.s, u.d, _p); const yaw = roadYaw(u.s) + (u.inc.dir < 0 ? Math.PI : 0);
-    u.pos.set(_p.x, 0, _p.z); u.yaw = yaw; u.m.g.position.copy(u.pos); u.m.g.rotation.y = yaw;
+    u.pos.set(_p.x, 0, _p.z); u.yaw = yaw + (u.state === 'work' ? (u.angle || 0) : 0); u.m.g.position.copy(u.pos); u.m.g.rotation.y = yaw;
     u.body?.setNextKinematicTranslation({ x: _p.x, y: 0, z: _p.z }); u.body?.setNextKinematicRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) });
   }
   addPerson(x, z, yaw, kind) {
@@ -136,10 +137,37 @@ export class Services {
     }
     for (const u of this.units) if (u.dead) { g.scene.remove(u.m.g); g.audio?.updateSiren(u, false); if (u.body) g.phys.removeRigidBody(u.body); if (u.load && !u.load.dead) { g.traffic.remove(u.load); g.traffic.cars = g.traffic.cars.filter(c => c !== u.load); } }
     this.units = this.units.filter(u => !u.dead);
+    for (const i of this.incidents) if (i.coneGrp && (i.t > 240 || (i.t > 30 && (!i.amb || i.amb.dead || i.amb.state === 'leave') && (!i.fire || i.fire.dead || i.fire.state === 'leave') && (!i.cars.length || (i.tow && (i.tow.dead || i.tow.state === 'leave')))))) { this.g.scene.remove(i.coneGrp); i.coneGrp = null; i.closed = null; }
     this.incidents = this.incidents.filter(i => !(i.done = i.t > 30 && (!i.amb || i.amb.dead || i.amb.state === 'leave') && (!i.fire || i.fire.dead || i.fire.state === 'leave') && (!i.cars.length || (i.tow && (i.tow.dead || i.tow.state === 'leave')))) && i.t < 240);
   }
+  // fermeture de voie(s) : cônes en biseau depuis la bande d'arrêt d'urgence, le trafic se rabat et passe à côté
+  closeLanes(inc) {
+    if (inc.closed) return;
+    const car = inc.cars[0]; let d = car ? car.d : null;
+    if (d == null && inc.hurt[0]) { const o = inc.hurt[0].piv || inc.hurt[0].grp || inc.hurt[0].g; if (o) d = worldToRoad(o.position.x, o.position.z, {}).d; }
+    if (d == null) d = laneD(inc.dir, 2);
+    let L = 0, best = 1e9; for (let l = 0; l < 4; l++) { const ld = l === 3 ? SHOULDER_D(inc.dir) : laneD(inc.dir, l); if (Math.abs(ld - d) < best) { best = Math.abs(ld - d); L = l; } }
+    const lanes = L === 0 ? [0] : L === 3 ? [] : Array.from({ length: 3 - L }, (_, i) => L + i); // voie de l'accident et celles côté BAU
+    inc.closed = lanes;
+    const edgeD = L === 0 ? laneD(inc.dir, 0) - inc.dir * 1.75 : L === 3 ? SHOULDER_D(inc.dir) + inc.dir * 1.6 : laneD(inc.dir, L) + inc.dir * 1.75; // bord côté voies ouvertes
+    const farD = L === 0 ? laneD(inc.dir, 0) + inc.dir * 1.6 : SHOULDER_D(inc.dir);
+    const grp = new THREE.Group(), cg = this.g.world.coneGeo, cm = this.g.world.coneMat;
+    for (let i = 0; i <= 12; i++) { const k = i / 12, s = inc.s - inc.dir * (95 - k * 70), dd = farD + (edgeD - farD) * Math.min(1, k * 1.4); roadToWorld(s, dd, _p); const c = new THREE.Mesh(cg, cm); c.position.set(_p.x, 0, _p.z); grp.add(c); }
+    for (let i = 0; i < 8; i++) { const s = inc.s - inc.dir * (25 - i * 8); roadToWorld(s, edgeD, _p); const c = new THREE.Mesh(cg, cm); c.position.set(_p.x, 0, _p.z); grp.add(c); }
+    // panneau « ACCIDENT » lumineux
+    const pn = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.3), new THREE.MeshStandardMaterial({ map: decal('ACCIDENT', '#f2c200', '#111111', 512, 256), emissive: 0xffffff, emissiveIntensity: 0.25, side: THREE.DoubleSide }));
+    roadToWorld(inc.s - inc.dir * 160, SHOULDER_D(inc.dir) - inc.dir * 1.2, _p); pn.position.set(_p.x, 1.6, _p.z); pn.rotation.y = roadYaw(inc.s) + (inc.dir > 0 ? Math.PI : 0); grp.add(pn);
+    this.g.scene.add(grp); inc.coneGrp = grp; inc.closeL = L;
+    this.g.say?.('close' + Math.round(inc.s / 100), `🚧 Info trafic : accident au PK ${(inc.s / 1000).toFixed(1)}, ${lanes.length > 1 ? lanes.length + ' voies neutralisées' : 'une voie neutralisée'}, circulation sur ${L === 0 ? 'les voies de droite' : 'la voie de gauche'}.`, 30, '');
+  }
+  // obstacles pour le trafic (voies fermées)
+  obstacles(obs) { for (const i of this.incidents) if (i.closed) for (const l of i.closed) obs.push({ s: i.s - i.dir * 30, d: laneD(i.dir, l), v: 0, front: 60, back: 60, w: 3.2, works: true }); }
+
   arrive(u) {
-    const inc = u.inc, fx = Math.sin(u.yaw), fz = Math.cos(u.yaw), lx = Math.cos(u.yaw), lz = -Math.sin(u.yaw);
+    const inc = u.inc;
+    this.closeLanes(inc);
+    if (u.kind === 'fire' && inc.closeL != null && inc.closeL < 3) { u.d = laneD(inc.dir, inc.closeL); u.angle = 0.45 * (inc.closeL === 0 ? -1 : 1); } // en travers, pour protéger
+    const fx = Math.sin(u.yaw), fz = Math.cos(u.yaw), lx = Math.cos(u.yaw), lz = -Math.sin(u.yaw);
     const at = (f, l) => new THREE.Vector3(u.pos.x + fx * f + lx * l, 0, u.pos.z + fz * f + lz * l);
     if (u.kind === 'amb') {
       u.crew = [this.addPerson(...at(-2.6, 0.6).toArray().filter((_, i) => i !== 1), u.yaw, 'amb'), this.addPerson(...at(-2.6, -0.6).toArray().filter((_, i) => i !== 1), u.yaw, 'amb')];

@@ -133,6 +133,7 @@ export class Traffic {
       const rd = worldToRoad(r.curPos.x, r.curPos.z, {});
       obs.push({ s: rd.s, d: rd.d, v: r.vAlong || 0, front: r.def.len / 2, back: r.def.len / 2 + (r.def.trailer ? r.def.trailer.len : 0), w: r.def.w + 0.5, veh: r, dir: 1, siren: r.siren });
     }
+    this.game.services?.obstacles(obs);
     for (const w of this.game.world.roadworks) obs.push({ s: (w.s0 + w.s1) / 2 - 30, d: laneD(w.dir, w.lane), v: 0, front: (w.s1 - w.s0 + 60) / 2, back: (w.s1 - w.s0 + 60) / 2, w: 3.2, works: true });
     return obs;
   }
