@@ -138,6 +138,7 @@ export class Game {
     this.stats = { crashes: 0, topSpeed: 0, dist: 0, start: 0, busts: 0 };
     this.nextReinforce = 55; this.blockDone = !diff.block && !(M?.heat >= 3); this.ended = false; this.radioT = 18; this.tacticT = 0;
     this.check = null; if (this.checkMesh) { this.scene.remove(this.checkMesh); this.checkMesh = null; }
+    (this.officers || []).forEach(o => this.scene.remove(o.grp)); this.officers = [];
     this.unitN = 1; this.score = 0; this.combo = 0; this.comboT = 0;
 
     if (cfg.mirror) return this.startMirror(cfg);
@@ -784,6 +785,7 @@ export class Game {
 
   // ---------- IA (modèle de langage) : directeur des PNJ et de la police, copilote bavard ----------
   brainStep(dt) {
+    this.officersStep(dt);
     if (this.mirror || this.netTraffic || !Brain.enabled()) return;
     this.brainT = (this.brainT ?? 4) - dt;
     if (this.brainT <= 0) { this.brainT = 9; directorTick(this); }
@@ -791,6 +793,38 @@ export class Game {
       this.banterT = (this.banterT ?? 40) - dt;
       if (this.banterT <= 0) { this.banterT = 45 + Math.random() * 30; copilotBanter(this).then(r => { if (r?.remarque && this.state === 'play' && this.coop) { this.coopMsg(`${this.coop.cop.name} : « ${String(r.remarque).slice(0, 120)} »`); this.crewAnim[1 - this.coop.driver] = { type: 'laugh', t: 0, dur: 1.5 }; } }); }
     }
+  }
+
+  // ---------- gendarmes à pied (barrages, véhicule HS) ----------
+  addOfficer(s, d, yawOff, mode, life) {
+    const M = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7 }), uni = M(0x1d2f5a), skin = M(0xe0b090), refl = new THREE.MeshStandardMaterial({ color: 0xd8e030, emissive: 0x303000, roughness: 0.6 });
+    const grp = new THREE.Group(), body = new THREE.Group(); grp.add(body);
+    const bx = (m, w, h, dd, x, y, z, par = body) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, dd), m); o.position.set(x, y, z); o.castShadow = true; par.add(o); return o; };
+    const legs = [-1, 1].map(sx => { const l = new THREE.Group(); l.position.set(sx * 0.11, 0.85, 0); bx(uni, 0.15, 0.85, 0.18, 0, -0.42, 0, l); body.add(l); return l; });
+    bx(refl, 0.46, 0.62, 0.26, 0, 1.18, 0); bx(skin, 0.22, 0.25, 0.22, 0, 1.64, 0); bx(uni, 0.27, 0.08, 0.3, 0, 1.8, 0.02);
+    const arms = [-1, 1].map(sx => { const a = new THREE.Group(); a.position.set(sx * 0.3, 1.45, 0); bx(uni, 0.11, 0.6, 0.11, 0, -0.28, 0, a); body.add(a); return a; });
+    const p = this.roadPose(s, d); grp.position.set(p.x, 0, p.z); grp.rotation.y = p.yaw + yawOff;
+    this.scene.add(grp);
+    (this.officers ||= []).push({ grp, body, arms, legs, mode, t: 0, life, s, d, dive: 0 });
+  }
+  officersStep(dt) {
+    if (!this.officers?.length) return;
+    const tk = this.targetTruck?.();
+    for (const o of this.officers) {
+      o.t += dt; const [L, R] = o.arms, t = o.t;
+      if (o.mode === 'block') {
+        R.rotation.x = -1.4; L.rotation.x = -1.2 + Math.sin(t * 2) * 0.05; // en joue / bras tendus
+        if (tk && tk.kmh > 45) { const ds = o.s - tk.road.s; if (ds > 0 && ds < 70 && Math.abs(tk.road.d - o.d) < 7) { o.mode = 'dive'; o.dir = o.d > tk.road.d ? 1 : -1; o.jump = o.dir > 0 ? Math.max(0.8, Math.min(4.5, -1.2 - o.d)) : 4.5; this.say('dive', 'Gendarme : « Il ne s’arrête pas !! À TERRE ! »', 8); } }
+      } else if (o.mode === 'dive') { // saut sur le côté, roulade
+        o.dive = Math.min(1, o.dive + dt * 1.6); const pz = this.roadPose(o.s, o.d + o.dir * o.dive * o.jump);
+        o.grp.position.set(pz.x, Math.sin(o.dive * Math.PI) * 0.6, pz.z); o.body.rotation.z = -o.dir * o.dive * 1.45; L.rotation.x = R.rotation.x = -2.8;
+        if (o.dive >= 1) { o.mode = 'up'; o.t = 0; o.d += o.dir * o.jump; }
+      } else if (o.mode === 'up') { o.body.rotation.z *= 0.96; if (t > 2) { o.mode = 'angry'; o.t = 0; } }
+      else if (o.mode === 'angry') { L.rotation.x = -2.4 + Math.sin(t * 9) * 0.6; R.rotation.x = -2.2 + Math.cos(t * 8) * 0.7; o.legs[0].rotation.x = Math.sin(t * 6) * 0.15; if (t > 4) { o.mode = 'radio'; o.t = 0; } }
+      else if (o.mode === 'radio') { R.rotation.x = -2.6; R.rotation.z = 0.4; L.rotation.x = 0; }
+      if ((o.life -= dt) <= 0) { this.scene.remove(o.grp); o.dead = true; }
+    }
+    this.officers = this.officers.filter(o => !o.dead);
   }
 
   // ---------- contrôle routier de départ ----------
@@ -1127,6 +1161,8 @@ export class Game {
       this.addSpike(bs - 12, laneD(1, 2) - 1.2, 6.5);
       this.radio(`Barrage installé au PK ${(bs / 1000).toFixed(1)} avec herse. Voies de gauche bloquées.`, 'pol');
       this.roadblock = { s: bs, units: [a, b] };
+      // gendarmes à pied derrière le barrage
+      for (const [dd, ds] of [[laneD(1, 0) + 2.2, 7], [laneD(1, 1) + 1.6, 9], [laneD(1, 2) + 2.6, 6]]) this.addOfficer(bs + ds, dd, Math.PI, 'block', 90);
     }
     if (this.roadblock && truck && truck.road.s > this.roadblock.s + 30) {
       for (const ai of this.roadblock.units) if (ai.role === 'roadblock') ai.role = 'chase';
@@ -1240,7 +1276,7 @@ export class Game {
 
   onDisabled(v) {
     if (this.state !== 'play') return;
-    if (v.isPolice && v !== this.player) { this.radio(`${v.name} hors service !`, 'pol'); if (this.team === 'truck') { this.heat += 15; this.triggerSlowmo('UNITÉ HORS SERVICE'); } }
+    if (v.isPolice && v !== this.player) { this.radio(`${v.name} hors service !`, 'pol'); if (!v.def.moto) { const side = v.road.d < -6 ? 1 : -1; this.addOfficer(v.road.s + 1, v.road.d + side * (v.def.w / 2 + 0.8), roadYaw(v.road.s) + Math.PI, 'angry', 30); setTimeout(() => this.state === 'play' && this.say('afoot' + v.unit, `${v.name} : « Je suis à pied ! Véhicule HS, il m’a percuté ! »`, 30), 1800); } if (this.team === 'truck') { this.heat += 15; this.triggerSlowmo('UNITÉ HORS SERVICE'); } }
     if (v === this.player && this.team === 'truck') this.hud.msg('Votre camion est hors d’usage !', 'red');
   }
   onTrafficCrash(car) {
@@ -1440,6 +1476,7 @@ export class Game {
     this.mirror = true; this.mode = 'coop'; this.team = 'truck'; this.coopKind = 'online';
     this.world.update(-300, 600, new THREE.Vector3(0, 0, 0), 0, true);
     this.traffic.clear();
+    this.buildCheckpoint(650); // décor du contrôle routier (la logique tourne chez l'hôte)
     const host = [...this.net.players.values()].find(p => p.host);
     this.coop = new Coop(this, { names: [host?.name || 'Hôte', this.net.me.name], humans: [true, true], online: true });
     document.body.classList.add('coop');
