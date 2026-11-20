@@ -267,6 +267,7 @@ export class Traffic {
 
       // --- changements de voie ---
       car.flashCd -= dt; if (car.yieldReq > 0) car.yieldReq -= dt;
+      { const pl = g.player; if (pl?.horn && !car.wreck && car.dir === 1 && Math.abs(pl.road.d - car.d) < 2 && car.s - pl.road.s > 0 && car.s - pl.road.s < 45) { if (!(car.yieldReq > 0)) { car.yieldReq = 5; if (this.r() < 0.4) g.bubble?.(car, pickLine('rabattu', ['Oui oui, ça va !', 'Pas la peine de klaxonner…', 'Calme-toi, j’y vais !'])); } } }
       if (car.persona === 'presse' && car.flashCd <= 0 && lead.o?.car && !lead.o.wreck && lead.gap < 28 && car.lane < 2 && Math.abs(lead.o.v) < v0 - 3.5) {
         car.flashCd = 6 + this.r() * 6; car.flash = 0.7; const lc2 = lead.o.car; lc2.yieldReq = 6;
         if (this.r() < 0.35) g.bubble?.(car, pickLine('appel_phares', ['Allez, pousse-toi !', 'La voie de gauche c’est pour doubler !', 'Il se croit seul au monde…']));
