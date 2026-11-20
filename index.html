@@ -260,6 +260,8 @@ body.coop #mapwrap { bottom:150px; } body.coop #speedwrap { bottom:150px; transf
 #bigtext.wanted { color:#ffd060; font-size:90px; }
 #paintover { position:fixed; inset:0; z-index:9; pointer-events:none; opacity:0; transition:opacity 1.5s; background:radial-gradient(circle at 35% 40%, rgba(255,63,160,.95) 0 14%, transparent 15%), radial-gradient(circle at 58% 32%, rgba(255,63,160,.9) 0 9%, transparent 10%), radial-gradient(circle at 48% 55%, rgba(255,63,160,.85) 0 18%, transparent 19%), radial-gradient(circle at 66% 50%, rgba(255,63,160,.8) 0 7%, transparent 8%); }
 #paintover.on { opacity:1; transition:opacity .1s; }
+#smokeover { position:fixed; inset:0; z-index:9; pointer-events:none; opacity:0; transition:opacity 2s; background:radial-gradient(ellipse at 50% 55%, rgba(200,205,215,.92), rgba(160,165,175,.75) 60%, rgba(120,125,135,.5)); }
+#smokeover.on { opacity:1; transition:opacity .3s; }
 #flash { position:fixed; inset:0; z-index:44; background:#fff; opacity:0; pointer-events:none; }
 #flash.on { animation:fl .5s ease-out; }
 @keyframes fl { 0% { opacity:.85; } 100% { opacity:0; } }
@@ -549,6 +551,7 @@ body.touch #speedwrap { transform:scale(.55); transform-origin:left top; top:120
 <div id="ach"></div>
 <div id="flash"></div>
 <div id="paintover"></div>
+<div id="smokeover"></div>
 <div id="slowmo"><div class="bar top"></div><div class="bar bot"></div><div id="slowmo-label"></div><div class="rec">● REPLAY</div></div>
 <div id="mini"><div class="mini-box"><div id="mini-title"></div><div id="mini-hint"></div><div id="mini-body"></div><div class="mini-time"><b id="mini-time"></b></div></div></div>
 <div id="touch">

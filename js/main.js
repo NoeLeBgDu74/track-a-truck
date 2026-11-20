@@ -195,7 +195,20 @@ function ui(game) {
   $('p-restart').onclick = () => { game.setState('play'); game.start(game.lastCfg); };
   $('p-settings').onclick = () => { show('settings'); renderSettings('none'); $('o-back').onclick = () => { show('none'); }; };
   $('p-quit').onclick = () => { game.toMenu(); show('home'); };
-  $('e-again').onclick = () => { show('none'); game.start(game.lastCfg); };
+  $('e-again').onclick = () => {
+    if (game.lastCfg?.mode === 'online' || game.lastCfg?.coop === 'online') {
+      if (!net.host) return;
+      if (game.lastCfg.mode === 'online') { net.send({ t: 'swap' }); const t = net.me.team === 'truck' ? 'police' : 'truck'; settings.team = t; saveSettings(); net.setTeam(t, settings.vehicle[t]); }
+      setTimeout(() => net.start({ mode: game.lastCfg.mode === 'online' ? 'online' : 'coop', weather: settings.weather, time: settings.time, difficulty: settings.difficulty }), 600);
+      return;
+    }
+    show('none'); game.start(game.lastCfg);
+  };
+  setInterval(() => { // libellé du bouton Rejouer selon le mode
+    const on = game.lastCfg?.mode === 'online' || game.lastCfg?.coop === 'online';
+    $('e-again').textContent = on ? (net.host ? (game.lastCfg?.mode === 'online' ? 'Revanche (rôles inversés)' : 'Rejouer ensemble') : 'Le créateur relance…') : 'Rejouer';
+    $('e-again').disabled = on && !net.host;
+  }, 500);
   $('e-next').onclick = () => { show('none'); game.start({ mode: 'chase', team: 'truck', mission: $('e-next').dataset.m }); };
   $('e-menu').onclick = () => { game.toMenu(); show('home'); };
 

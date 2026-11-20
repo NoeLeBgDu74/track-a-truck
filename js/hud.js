@@ -95,7 +95,10 @@ export class HUD {
     const s = ref.road.s;
     const truck = g.mode === 'chase' ? g.targetTruck() : null;
     let lines = '';
-    if (g.mode === 'free') {
+    if (g.mode === 'online') {
+      const rv = g.rival();
+      lines = `<b>${g.team === 'truck' ? 'Duel : livre la cargaison !' : 'Duel : arrête le camion !'}</b><span>${g.team === 'truck' ? 'Plateforme : ' + (Math.max(0, DEST_S - s) / 1000).toFixed(1) + ' km' : 'Interpellation : ' + Math.round((g.bust || 0) * 100) + ' %'}</span>` + (rv ? `<span class="${rv.d < 60 ? 'red' : ''}">${rv.r.team === 'police' ? '🚔' : '🚛'} ${rv.r.name} : ${Math.round(rv.d)} m</span>` : '<span>En attente de l’adversaire…</span>') + (g.duel ? `<span>${g.team === 'truck' ? `🛢️ ${g.duel.oil} · 📌 ${g.duel.nails} · 💨 ${g.duel.smoke}` : `🦔 herses ${g.duel.spike}`}</span>` : '');
+    } else if (g.mode === 'free') {
       lines = `<b>PK ${(s / 1000).toFixed(1)}</b><span>Autoroute A77 — direction Lyon</span>`;
     } else if (g.team === 'truck') {
       const left = Math.max(0, DEST_S - s) / 1000;

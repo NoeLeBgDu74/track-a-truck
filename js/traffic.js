@@ -187,6 +187,7 @@ export class Traffic {
   step(dt, focusS, wet) {
     const g = this.game;
     if (g.mirror) return;
+    if (g.netTraffic) return this.followStep(dt);
     const obs = this.buildObstacles();
     const sirens = obs.filter(o => o.siren);
     const wrecks = obs.filter(o => o.wreck);
@@ -335,6 +336,21 @@ export class Traffic {
     }
   }
 
+  followStep(dt) {
+    const now = performance.now();
+    for (const car of this.cars) {
+      if (car.localWreck) { this.wreckStep(car, dt); continue; }
+      const k = Math.min(1.3, (now - (car.snapAt || now)) / 133);
+      const x = car.prev.x + (car.cur.x - car.prev.x) * k, z = car.prev.z + (car.cur.z - car.prev.z) * k;
+      let dy = car.curYaw - car.prevYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); const yaw = car.prevYaw + dy * Math.min(1, k);
+      car.fx = x; car.fz = z; car.fyaw = yaw;
+      if (car.wreck && car.quat) { car.body?.setNextKinematicTranslation({ x: car.cur.x, y: car.cur.y, z: car.cur.z }); car.body?.setNextKinematicRotation(car.quat); }
+      else { car.body?.setNextKinematicTranslation({ x, y: 0, z }); car.body?.setNextKinematicRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }); }
+      if (car.trailer?.body && !car.wreck) { const t = car.trailer, tx = t.prev.x + (t.cur.x - t.prev.x) * k, tz = t.prev.z + (t.cur.z - t.prev.z) * k; let ty = t.yaw - t.prevYaw; ty = Math.atan2(Math.sin(ty), Math.cos(ty)); const tyw = t.prevYaw + ty * Math.min(1, k); t.fx = tx; t.fz = tz; t.fyaw = tyw; t.body.setNextKinematicTranslation({ x: tx, y: 0, z: tz }); t.body.setNextKinematicRotation({ x: 0, y: Math.sin(tyw / 2), z: 0, w: Math.cos(tyw / 2) }); }
+    }
+    this.detectCrashes(dt);
+  }
+
   // l'essieu avant suit la voie ; l'essieu arrière est « tiré » (rayon de braquage réaliste), la remorque suit la sellette
   kinematics(car, dt) {
     const yawRoad = roadYaw(car.s) + (car.dir < 0 ? Math.PI : 0);
@@ -412,6 +428,7 @@ export class Traffic {
   makeWreck(car, vx, vz) {
     const R = this.game.R;
     car.wreck = true; car.wreckT = 0; car.brake = true; car.hazard = 1;
+    if (this.game.netTraffic) { car.localWreck = true; this.game.net.send({ t: 'wreck', id: car.id, vx: +vx.toFixed(1), vz: +vz.toFixed(1) }); }
     for (const b of [car.body, car.trailer?.body]) {
       if (!b) continue;
       b.setBodyType(R.RigidBodyType.Dynamic, true);
@@ -431,6 +448,15 @@ export class Traffic {
   }
 
   render(alpha) {
+    if (this.game.netTraffic) {
+      for (const car of this.cars) {
+        if (car.localWreck || (car.wreck && car.quat)) { const p = car.localWreck ? car.body.translation() : car.cur; car.mesh.position.set(p.x, p.y, p.z); if (car.quat) car.mesh.quaternion.copy(car.quat); continue; }
+        if (car.fx == null) continue;
+        car.mesh.position.set(car.fx, 0, car.fz); car.mesh.rotation.set(0, car.fyaw, 0);
+        if (car.trailer && car.trailer.fx != null) { car.trailer.mesh.position.set(car.trailer.fx, 0, car.trailer.fz); car.trailer.mesh.rotation.set(0, car.trailer.fyaw, 0); }
+      }
+      return;
+    }
     for (const car of this.cars) {
       if (car.wreck && car.quat) {
         car.mesh.position.copy(car.cur); car.mesh.quaternion.copy(car.quat);
@@ -490,6 +516,8 @@ export class Traffic {
       seen.add(id);
       let c = byId.get(id);
       if (!c) { worldToRoad(x, z, _r); c = this.spawn(_r.s, 1, 1, { type: TRAFFIC_TYPES[ti], seed, id }); c.prev.set(x, 0, z); c.prevYaw = yaw; if (c.trailer) { c.trailer.prev.set(kx, 0, kz); c.trailer.prevYaw = ky; } }
+      if (c.localWreck) continue;
+      c.snapAt = performance.now();
       c.prev.copy(c.mesh.position); c.prevYaw = c.mesh.rotation.y;
       c.cur.set(x, a.length > 11 ? a[11] : 0, z); c.curYaw = yaw; c.brake = !!br; c.hazard = hz ? 1 : 0;
       worldToRoad(x, z, _r); c.s = _r.s; c.d = _r.d;
