@@ -200,6 +200,7 @@ export class Traffic {
     for (const car of this.cars) {
       car.prev.copy(car.cur); car.prevYaw = car.curYaw;
       if (car.trailer) { car.trailer.prev.copy(car.trailer.cur); car.trailer.prevYaw = car.trailer.yaw; }
+      if (car.towed) continue;
       if (car.wreck) { this.wreckStep(car, dt); continue; }
       if (car.broken) { car.v = 0; car.brake = false; this.kinematics(car, dt); continue; }
       let v0 = car.v0 * vFactor;
@@ -340,7 +341,7 @@ export class Traffic {
     const want = this.target;
     for (const car of this.cars) {
       const far = Math.abs(car.s - focusS);
-      if ((far > 1150 && !car.broken) || (car.wreck && car.wreckT > 60 && far > 250) || (car.dead2 && !car.wreck)) this.remove(car);
+      if ((far > 1150 && !car.broken) || (car.wreck && car.wreckT > 60 && far > 250 && !(car.awaitTow && far < 1000)) || (car.dead2 && !car.wreck)) this.remove(car);
     }
     this.cars = this.cars.filter(c => !c.dead);
     let tries = 0;
@@ -490,6 +491,7 @@ export class Traffic {
     if (mode === 'hurt') { grp.rotation.z = Math.PI / 2; grp.position.y = 0.2; }
     this.game.scene.add(grp);
     car.ped = { grp, arms, mode, t: 0 };
+    if (mode === 'dazed' || mode === 'hurt') this.game.services?.addHurt(car.s, car.dir, car.ped);
   }
 
   pedStep(car, dt) {
@@ -525,7 +527,7 @@ export class Traffic {
       }
     }
     // carambolage : un civil qui arrive trop vite sur une épave
-    for (const car of this.cars) if (car.wreck && car.wreckT < 8) for (const o of this.cars) {
+    for (const car of this.cars) if (car.wreck && !car.towed && car.wreckT < 8) for (const o of this.cars) {
       if (o.wreck || o === car) continue;
       const dx = o.cur.x - car.cur.x, dz = o.cur.z - car.cur.z;
       if (dx * dx + dz * dz < ((o.len + car.len) / 2) ** 2 * 0.7 && o.v > 7) this.makeWreck(o, Math.sin(o.curYaw) * o.v, Math.cos(o.curYaw) * o.v, { rvx: -Math.sin(o.curYaw) * o.v, rvz: -Math.cos(o.curYaw) * o.v, rel: o.v });
@@ -536,9 +538,10 @@ export class Traffic {
     const R = this.game.R;
     car.wreck = true; car.wreckT = 0; car.brake = true; car.hazard = 1;
     if (hit) this.crashFx(car, hit);
+    if (!car.localWreck) this.game.services?.report({ s: car.s, dir: car.dir, severe: (car.sev ?? 0) >= 2 || !!car.type.moto, cars: [car], hurt: [] });
     if (car.type.moto && car.mesh.userData.rider && !this.game.mirror) { // le motard civil est éjecté, la moto se couche
       car.riderObj = this.game.ejectRider?.(car.mesh.userData.rider, { x: Math.sin(car.curYaw) * car.v + (hit?.rvx || 0) * 0.3, z: Math.cos(car.curYaw) * car.v + (hit?.rvz || 0) * 0.3 }, null);
-      car.motoFall = true;
+      car.motoFall = true; if (car.riderObj) this.game.services?.addHurt(car.s, car.dir, car.riderObj);
     }
     if (this.game.netTraffic) { car.localWreck = true; this.game.net.send({ t: 'wreck', id: car.id, vx: +vx.toFixed(1), vz: +vz.toFixed(1) }); }
     for (const b of [car.body, car.trailer?.body]) {
@@ -571,6 +574,7 @@ export class Traffic {
       return;
     }
     for (const car of this.cars) {
+      if (car.towed) continue;
       if (car.wreck && car.quat) {
         car.mesh.position.copy(car.cur); car.mesh.quaternion.copy(car.quat);
         if (car.trailer?.quat) { car.trailer.mesh.position.copy(car.trailer.cur); car.trailer.mesh.quaternion.copy(car.trailer.quat); }

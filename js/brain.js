@@ -136,6 +136,10 @@ const LINE_CATS = {
   telephone: 'conducteur accidenté au téléphone (famille, assurance, patron…), commence par 📱',
   appel_17: 'témoin qui appelle la police à propos du camion, commence par 📱',
   temoin: 'témoin qui vient de voir le camion provoquer un accident',
+  ouvrier: 'ouvrier de chantier d’autoroute en pause café qui discute avec un collègue',
+  ouvrier_peur: 'ouvrier de chantier qui voit un camion foncer dans la zone de travaux',
+  secouriste: 'secouriste du SAMU qui arrive sur un accident',
+  soins: 'secouriste qui parle au blessé allongé pour le rassurer',
 };
 const POOL = {}; let used = new Set(JSON.parse(sessionStorage.getItem('tat_used') || '[]'));
 export function pickLine(cat, fallback) {

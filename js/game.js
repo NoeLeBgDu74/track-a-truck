@@ -20,6 +20,8 @@ import { Coop, ACTIONS, GAGS } from './coop.js';
 import { Mini } from './minigame.js';
 import { Listener, understand } from './speech.js';
 import { Admin } from './admin.js';
+import { Services } from './services.js';
+import { Works } from './works.js';
 import { Brain, directorTick, copilotReply, copilotBanter, refillLines, pickLine } from './brain.js';
 import { Cinematic, storyShots } from './cine.js';
 import { Showroom } from './showroom.js';
@@ -42,7 +44,7 @@ export class Game {
     this.world = new World(this.scene, R, this.phys, 1);
     this.env = new Env(renderer, this.scene);
     this.traffic = new Traffic(this);
-    this.admin = new Admin(this);
+    this.admin = new Admin(this); this.services = new Services(this); this.works = new Works(this);
     this.glows = new Glows(this.scene); this.particles = new Particles(this.scene);
     this.audio = new Audio(); this.input = new Input(); this.camRig = new CameraRig(camera); this.hud = new HUD(); this.net = new Net();
     this.cine = new Cinematic(this);
@@ -140,6 +142,7 @@ export class Game {
     this.arrest = null; this.check = null; if (this.checkMesh) { this.scene.remove(this.checkMesh); this.checkMesh = null; }
     (this.officers || []).forEach(o => this.scene.remove(o.grp)); this.officers = [];
     (this.riders || []).forEach(r => this.scene.remove(r.piv)); this.riders = [];
+    this.services?.clear(); this.works?.clear();
     this.unitN = 1; this.score = 0; this.combo = 0; this.comboT = 0;
 
     if (cfg.mirror) return this.startMirror(cfg);
@@ -343,6 +346,8 @@ export class Game {
     if (this.env.night > 0.3) this.world.lampGlows(camPos, list);
     for (const v of this.vehicles) { if (v.ai) v.headlights = night || this.env.rainAmt > 0.5; v.lightPoints(list); }
     this.traffic.lightPoints(list, night || this.env.rainAmt > 0.6, camPos);
+    this.services.lightPoints(list); this.works.lightPoints(list);
+    if (this.state !== 'menu') this.works.step(dt);
     this.glows.set(list, this.env.night > 0.3 || this.env.tunnel > 0.3 ? 1 : 0.55);
     this.updateLights();
     this.particles.points.material.uniforms.light.value = Math.max(0.12, 1 - this.env.night * 0.85) * (1 - this.env.tunnel * 0.4);
@@ -555,6 +560,7 @@ export class Game {
     const focusS = this.state === 'garage' ? this.garageS : pl ? pl.road.s : (this.person ? this.toRoad(this.person.pos.x, this.person.pos.z).s : this.menuS);
     let tFocus = focusS; if (this.mode === 'online' && this.net.host && pl) { const rv = this.rival(); if (rv) { const rs = worldToRoad(rv.r.curPos.x, rv.r.curPos.z, {}).s; if (Math.abs(rs - focusS) < 1600) tFocus = (rs + focusS) / 2; } }
     this.traffic.step(dt, tFocus, this.env.wet);
+    this.services.step(dt);
     if (this.coop && this.state === 'play' && pl && pl.coopPush) { /* poussée gérée dans coopDriverInput */ }
     this.phys.step();
     for (const v of this.vehicles) v.postStep(dt);
@@ -847,6 +853,7 @@ export class Game {
     const axis = new THREE.Vector3(v.z, 0, -v.x).normalize(); if (!isFinite(axis.x) || axis.lengthSq() < 0.5) axis.set(1, 0, 0);
     const R = { piv, rider, vel: v, axis, w: 3 + sp * 0.35, t: 0, state: 'fly', label, cur: piv.position, mesh: piv, type: { h: -0.6 } };
     (this.riders ||= []).push(R);
+    if (label) { const rr = worldToRoad(piv.position.x, piv.position.z, {}); this.services?.report({ s: rr.s, dir: rr.d < 0 ? 1 : -1, severe: false, cars: [], hurt: [R] }); }
     this.audio?.crash?.(piv.position, 5);
     return R;
   }
