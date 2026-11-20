@@ -611,6 +611,10 @@ export class Game {
       if (this.state === 'play' && pl.road.d < -120 && pl.road.s > VILLAGE.s0 && pl.road.s < VILLAGE.s1) this.unlock('bis');
       // radars automatiques (tous les 2 km, sens +s) : flash au-delà de 135 km/h
       const rs = Math.round((pl.road.s - 1000) / 2000) * 2000 + 1000;
+      { // avertisseur de radar : alerte à 400 m (bip plus insistant si trop vite)
+        const nextR = Math.ceil((pl.road.s - 1000 + 1) / 2000) * 2000 + 1000, dr = nextR - pl.road.s;
+        if (this.state === 'play' && pl.road.d < 0 && pl.road.d > -16 && dr < 400 && dr > 0 && this.warnRadar !== nextR) { this.warnRadar = nextR; this.hud.toast(`📷 Radar fixe dans ${Math.round(dr / 10) * 10} m — limite 130`); this.audio.beep(pl.kmh > 130 ? 1600 : 1100, 0.12, 0.12); if (pl.kmh > 130) setTimeout(() => this.audio.beep(1600, 0.12, 0.12), 200); }
+      }
       if (this.state === 'play' && pl.road.d < 0 && pl.road.d > -16 && Math.abs(pl.road.s - rs) < 3 && this.lastRadar !== rs) {
         this.lastRadar = rs;
         if (pl.kmh > 135) { this.flashN = (this.flashN || 0) + 1; const f = document.getElementById('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); this.audio.beep(2400, 0.05, 0.1); this.hud.msg(`📸 Flashé à <b>${Math.round(pl.kmh)} km/h</b> (limite 130).` + (this.team === 'truck' && this.mode !== 'free' ? ' La police est prévenue.' : '')); if (this.team === 'truck' && this.mode !== 'free') this.heat += 4; }
