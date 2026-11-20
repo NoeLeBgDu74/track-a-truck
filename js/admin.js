@@ -116,6 +116,9 @@ export class Admin {
     add('monde', 'fog', '🌫️', 'Brouillard', 'Visibilité nulle', () => g.env.setWeather('fog'));
     add('monde', 'clear', '🌤️', 'Beau temps', 'Ciel dégagé', () => g.env.setWeather('clear'));
     add('monde', 'moon', '🌕', 'Gravité lunaire', 'Tout flotte (sauts géants)', null, true);
+    add('monde', 'evboar', '🐗', 'Sangliers', 'Une harde traverse 300 m devant', () => { const v = this.pl(); if (v && this.canLocal()) this.g.events.spawn(v.road.s + 300, 'boars'); });
+    add('monde', 'evcow', '🐄', 'Vache échappée', 'Marguerite sur l’autoroute', () => { const v = this.pl(); if (v && this.canLocal()) this.g.events.spawn(v.road.s + 300, 'cow'); });
+    add('monde', 'evload', '📦', 'Chargement perdu', 'Matelas et cartons sur une voie', () => { const v = this.pl(); if (v && this.canLocal()) this.g.events.spawn(v.road.s + 300, 'load'); });
     add('monde', 'slow', '🐢', 'Ralenti 4 s', 'Effet cinéma', () => { g.slow = 4; document.body.classList.add('slowmo'); });
     // Fun
     add('fun', 'cheese', '🧀', 'Pluie de fromages', '30 meules tombent du ciel', () => { const v = this.pl(); if (!v || !this.canLocal()) return; for (let i = 0; i < 30; i++) setTimeout(() => { const p = v.curPos; g.spawnProp?.('cheese', new THREE.Vector3(p.x + (Math.random() - 0.5) * 40, 18 + Math.random() * 10, p.z + (Math.random() - 0.5) * 40), { x: 0, y: -2, z: 0 }); }, i * 60); });
