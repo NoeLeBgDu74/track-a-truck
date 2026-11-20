@@ -287,6 +287,7 @@ export class Vehicle {
     this.curPos.set(p.x, p.y, p.z); this.curQuat.set(q.x, q.y, q.z, q.w);
     _v.set(v.x, v.y, v.z);
     const dv = _v.distanceTo(this.lastV), preV = this.lastV.clone();
+    if (this.noClamp > 0) this.noClamp -= dt;
     const dvec = _v.clone().sub(this.lastV);
     if (dt > 0) { // accélération ressentie dans la cabine (repère véhicule)
       _f.copy(_v).sub(this.lastV).divideScalar(dt).applyQuaternion(_q.set(q.x, q.y, q.z, q.w).invert());
@@ -300,11 +301,11 @@ export class Vehicle {
       this.impact = dv;
       // un choc ne fait pas décoller un véhicule de plusieurs tonnes : on borne la vitesse verticale et le cabrage
       const lv = b.linvel(), av = b.angvel();
-      if (lv.y > 1.0) b.setLinvel({ x: lv.x, y: 1.0, z: lv.z }, true);
+      if (lv.y > 1.0 && !(this.noClamp > 0)) b.setLinvel({ x: lv.x, y: 1.0, z: lv.z }, true);
       const up = _u.set(0, 1, 0).applyQuaternion(_q.set(q.x, q.y, q.z, q.w));
       const ay = av.x * up.x + av.y * up.y + av.z * up.z, MAXR = 1.2;
       const px = av.x - up.x * ay, py = av.y - up.y * ay, pz = av.z - up.z * ay, pr = Math.hypot(px, py, pz);
-      if (pr > MAXR) { const k = MAXR / pr; b.setAngvel({ x: up.x * ay + px * k, y: up.y * ay + py * k, z: up.z * ay + pz * k }, true); }
+      if (pr > MAXR && !(this.noClamp > 0)) { const k = MAXR / pr; b.setAngvel({ x: up.x * ay + px * k, y: up.y * ay + py * k, z: up.z * ay + pz * k }, true); }
       if (this.trailer) { const tv = this.trailer.body.linvel(); if (tv.y > 1.0) this.trailer.body.setLinvel({ x: tv.x, y: 1.0, z: tv.z }, true); }
       this.damage = Math.min(100, this.damage + (dv - 1.1) * k * this.armor);
       if (dt > 0) this.deform(dvec, dv);

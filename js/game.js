@@ -1571,6 +1571,7 @@ export class Game {
     n.on('end', m => { if (this.mirror) this.showEnd(m.win, m.title, m.sub, m.rows); });
     n.on('cine', () => { if (this.mirror) this.mirrorCine = true; });
     n.on('speech', m => { if (this.coop) this.handleSpeech(m.idx, m.text, false); });
+    n.on('adm', m => this.admin.remote(m));
   }
   updateRemotes(dt) {
     if (!this.net.room || this.mode !== 'online') return;
