@@ -139,7 +139,7 @@ export class Game {
     this.heat = (M?.heat || 0) * 20; this.cargo = 100; this.allies = []; this.playerArrived = false; this.nextBlock = 75; this.heliOn = false; this.heliT = 0; this.headStart = this.team === 'truck' ? 15 : 10; this.released = false;
     this.stats = { crashes: 0, topSpeed: 0, dist: 0, start: 0, busts: 0 };
     this.nextReinforce = 55; this.blockDone = !diff.block && !(M?.heat >= 3); this.ended = false; this.radioT = 18; this.tacticT = 0;
-    this.arrest = null; this.check = null; if (this.checkMesh) { this.scene.remove(this.checkMesh); this.checkMesh = null; }
+    this.patrol = null; this.arrest = null; this.check = null; if (this.checkMesh) { this.scene.remove(this.checkMesh); this.checkMesh = null; }
     (this.officers || []).forEach(o => this.scene.remove(o.grp)); this.officers = [];
     (this.riders || []).forEach(r => this.scene.remove(r.piv)); this.riders = [];
     this.services?.clear(); this.works?.clear();
@@ -598,7 +598,7 @@ export class Game {
       const rs = Math.round((pl.road.s - 1000) / 2000) * 2000 + 1000;
       if (this.state === 'play' && pl.road.d < 0 && pl.road.d > -16 && Math.abs(pl.road.s - rs) < 3 && this.lastRadar !== rs) {
         this.lastRadar = rs;
-        if (pl.kmh > 135) { const f = document.getElementById('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); this.audio.beep(2400, 0.05, 0.1); this.hud.msg(`📸 Flashé à <b>${Math.round(pl.kmh)} km/h</b> (limite 130).` + (this.team === 'truck' && this.mode !== 'free' ? ' La police est prévenue.' : '')); if (this.team === 'truck' && this.mode !== 'free') this.heat += 4; }
+        if (pl.kmh > 135) { this.flashN = (this.flashN || 0) + 1; const f = document.getElementById('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); this.audio.beep(2400, 0.05, 0.1); this.hud.msg(`📸 Flashé à <b>${Math.round(pl.kmh)} km/h</b> (limite 130).` + (this.team === 'truck' && this.mode !== 'free' ? ' La police est prévenue.' : '')); if (this.team === 'truck' && this.mode !== 'free') this.heat += 4; }
       }
       // « pschitt » des freins à air quand le poids lourd s'immobilise
       if (pl.team === 'truck') { if (pl.kmh > 8) this.airArm = true; if (this.airArm && pl.kmh < 1.5 && pl.brk > 0.1) { this.airArm = false; this.audio.hiss?.(); } }
@@ -883,6 +883,57 @@ export class Game {
       if (R.t > 60 && R.state === 'lie') { this.scene.remove(R.piv); R.dead = true; }
     }
     this.riders = this.riders.filter(r => !r.dead);
+  }
+
+  // ---------- mode libre : contrôles de police (se ranger, contrôle, on repart… ou refus d'obtempérer) ----------
+  patrolStep(dt) {
+    const pl = this.player; if (!pl || this.mirror || this.team !== 'truck' || this.person) return;
+    const P = this.patrol ||= { next: 70 + Math.random() * 60, flashed: 0 };
+    if (this.lastFlash !== this.flashN) { this.lastFlash = this.flashN; P.flashed++; if (!P.state) P.next = Math.min(P.next, this.time + 8); }
+    const cop = P.ai?.v, sayCop = (t, cd = 0) => { this.hud.msg(`👮 Gendarmerie : « ${t} »`, 'pol'); Voice.say(t, { pitch: 0.75, rate: 1.1, voice: 1 }); };
+    const end = (bye) => { if (P.ai) { P.ai.role = 'cruise'; P.ai.speedCap = 125; P.v.siren = false; } if (P.officer) { this.scene.remove(P.officer.grp); this.officers = this.officers.filter(o => o !== P.officer); } if (bye) sayCop(bye); const old = P.v; setTimeout(() => { const i = this.police.findIndex(p => p.v === old); if (i >= 0 && old) { old.dispose(); this.vehicles = this.vehicles.filter(v => v !== old); this.police.splice(i, 1); } }, 25000); this.patrol = { next: this.time + 140 + Math.random() * 120, flashed: 0 }; };
+    if (!P.state) {
+      if (this.time < P.next || pl.road.d < -18 || pl.kmh < 30) return;
+      // une patrouille arrive par l'arrière
+      const ai = this.addPolice(pl.road.s - 160, laneD(1, 1), 'escort'); ai.target = pl; ai.v.siren = true; ai.v.setVelocityForward?.(Math.max(25, pl.speed + 6));
+      P.ai = ai; P.v = ai.v; P.state = 'follow'; P.t = 0;
+      this.radio(P.flashed ? `Patrouille : véhicule flashé à ${Math.round(this.stats.topSpeed)} km/h, on l’intercepte.` : 'Patrouille : contrôle aléatoire d’un poids lourd, on le fait ranger.', 'pol');
+      return;
+    }
+    P.t += dt; const gap = pl.road.s - cop.road.s;
+    if (P.state === 'follow') {
+      if (gap < 45 && !P.told) { P.told = true; this.hud.big('RANGEZ-VOUS', 'wanted'); sayCop('Gendarmerie nationale ! Rangez-vous sur la bande d’arrêt d’urgence et arrêtez-vous !'); }
+      if (P.told && pl.road.d < -9 && pl.kmh < 6) { P.state = 'stop'; P.t = 0; }
+      else if (P.told && P.t > 45 || (P.told && pl.kmh > 150)) { P.state = 'refus'; P.t = 0; P.ai.role = 'chase'; this.radio('Refus d’obtempérer ! Le poids lourd ne s’arrête pas, demande de renfort !', 'pol'); this.hud.big('REFUS D’OBTEMPÉRER', 'wanted'); }
+      else if (P.t > 90) end();
+    } else if (P.state === 'stop') {
+      if (P.t > 3 && !P.officer && cop.kmh < 2) {
+        const yaw = pl.yaw, door = new THREE.Vector3(pl.curPos.x + Math.sin(yaw) * (pl.def.len / 2 - 1.2) + Math.cos(yaw) * (pl.def.w / 2 + 0.7), 0, pl.curPos.z + Math.cos(yaw) * (pl.def.len / 2 - 1.2) - Math.sin(yaw) * (pl.def.w / 2 + 0.7));
+        const o = this.addPerson(cop.curPos.x + Math.cos(yaw) * 1.6, cop.curPos.z - Math.sin(yaw) * 1.6, yaw, 'aim', 999); o.mode = 'walkto'; o.walk = door; P.officer = o; P.door = door;
+      }
+      if (P.officer && P.officer.mode === 'walkto') { const o = P.officer, d = P.door.clone().sub(o.grp.position); d.y = 0; if (d.length() > 0.3) { o.grp.rotation.y = Math.atan2(d.x, d.z); o.grp.position.addScaledVector(d.normalize(), Math.min(d.length(), 1.4 * dt)); o.legs[0].rotation.x = Math.sin(P.t * 8) * 0.5; o.legs[1].rotation.x = -Math.sin(P.t * 8) * 0.5; } else { o.mode = 'radio'; o.grp.rotation.y = pl.yaw - Math.PI / 2; o.legs.forEach(l => l.rotation.x = 0); P.state = 'talk'; P.t = 0; P.line = 0; } }
+      if (pl.kmh > 25) { P.state = 'refus'; P.t = 0; P.ai.role = 'chase'; this.radio('Il redémarre en plein contrôle ! Poursuite !', 'pol'); this.hud.big('REFUS D’OBTEMPÉRER', 'wanted'); }
+    } else if (P.state === 'talk') {
+      const fine = P.flashed ? 90 + (P.flashed - 1) * 45 : 0, drunk = Math.random;
+      const lines = P.lines ||= (() => { const L = [[0.5, 'Bonjour monsieur, gendarmerie nationale. Permis, carte grise et lettre de voiture, s’il vous plaît.'], [5, 'Vous allez souffler dans l’éthylotest… longtemps… voilà.']];
+        if (fine) L.push([10, `Vous avez été flashé au-dessus de 130. Amende de ${fine} € et je vous retire des points.`]);
+        else L.push([10, Math.random() < 0.5 ? 'Tout est en ordre. Le disque du chronotachygraphe aussi. Bonne route, et prudence.' : 'C’est bon pour cette fois. Pensez à faire une pause, vous avez l’air fatigué.']);
+        L.push([14, 'Vous pouvez repartir.']); return L; })();
+      while (P.line < lines.length && P.t >= lines[P.line][0]) sayCop(lines[P.line++][1]);
+      if (P.t > 5 && P.t < 9 && P.officer) P.officer.arms[1].rotation.x = -1.4; // tend l'éthylotest
+      if (P.line >= lines.length && !P.paid) { P.paid = true; if (fine) { profile.money = Math.max(0, profile.money - fine); saveProfile(); this.hud.toast(`💸 Amende : −${fine} €`); } }
+      if (pl.kmh > 25 && P.line < lines.length) { P.state = 'refus'; P.t = 0; P.ai.role = 'chase'; this.radio('Il prend la fuite pendant le contrôle ! Poursuite !', 'pol'); this.hud.big('REFUS D’OBTEMPÉRER', 'wanted'); if (P.officer) { P.officer.mode = 'angry'; P.officer.life = 20; } }
+      if (P.line >= lines.length && P.t > 16) { P.officer.mode = 'walkto'; P.door = cop.curPos.clone(); P.state = 'back'; P.t = 0; }
+    } else if (P.state === 'back') {
+      const o = P.officer, d = P.door.clone().sub(o.grp.position); d.y = 0;
+      if (d.length() > 1.2 && P.t < 12) { o.grp.rotation.y = Math.atan2(d.x, d.z); o.grp.position.addScaledVector(d.normalize(), 1.4 * dt); o.legs[0].rotation.x = Math.sin(P.t * 8) * 0.5; o.legs[1].rotation.x = -Math.sin(P.t * 8) * 0.5; }
+      else end();
+    } else if (P.state === 'refus') {
+      const dist = cop.curPos.distanceTo(pl.curPos);
+      if (dist < 14 && pl.kmh < 12) P.bust = (P.bust || 0) + dt; else P.bust = Math.max(0, (P.bust || 0) - dt * 0.5);
+      if (P.bust > 3) { const f = 750; profile.money = Math.max(0, profile.money - f); saveProfile(); this.hud.big('INTERPELLÉ', 'wanted'); sayCop(`Refus d’obtempérer : ${f} € d’amende et le camion part à la fourrière… enfin, cette fois on vous laisse repartir.`); this.hud.toast(`💸 −${f} €`); end(); }
+      else if (dist > 700 || P.t > 120) { this.radio('Patrouille : on l’a perdu… abandon de la poursuite.', 'pol'); this.hud.big('SEMÉ !', 'go'); end(); }
+    }
   }
 
   // ---------- scène d'interpellation ----------
@@ -1213,7 +1264,7 @@ export class Game {
   rules(dt) {
     const pl = this.player;
     if (this.arrest?.args) return this.arrestStep(dt);
-    if (this.mode === 'free' || this.mode === 'online') { if (this.mode === 'online') this.onlineRules(dt); return; }
+    if (this.mode === 'free' || this.mode === 'online') { if (this.mode === 'online') this.onlineRules(dt); else this.patrolStep(dt); return; }
     this.timeLeft -= dt;
     const truck = this.targetTruck();
     if (this.check && truck) this.checkStep(dt, truck);

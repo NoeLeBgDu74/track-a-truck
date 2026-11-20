@@ -85,6 +85,12 @@ export class AIDriver {
     } else if (this.role === 'flee') {
       ({ wantD, wantV, aimPoint } = this.flee(wantD, wantV, s, d, spd));
     } else if (this.role === 'cruise') wantV = Math.min(wantV, this.speedCap / 3.6);
+    else if (this.role === 'escort' && tgt) { // patrouille qui suit le véhicule à contrôler, puis s'arrête derrière lui
+      const gap = (tgt.road.s - s) - 16;
+      wantD = clamp(tgt.road.d, SHOULDER_D(1) + 0.6, LEFT);
+      wantV = Math.max(0, tgt.speed + clamp(gap * 0.5, -10, 14));
+      if (tgt.kmh < 5 && gap < 3) { inp.throttle = 0; inp.brake = Math.abs(spd) > 0.5 ? 1 : 0; inp.handbrake = Math.abs(spd) < 0.5; inp.steer = 0; this.wantV = 0; return; }
+    }
 
     if (v.blindT > 0) { v.blindT -= dt; wantV *= 0.45; wantD += Math.sin(g.time * 3 + (v.unit || 0)) * 1.5; }
     if (g.confuseT > 0 && this.role === 'chase') { wantV *= 0.5; wantD = lanes[(Math.floor(g.time * 0.4) + (this.v.unit || 0)) % 3]; }
